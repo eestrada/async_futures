@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
-require_relative 'flex_futures/version'
+require_relative 'asynchronous_futures/version'
 require 'timeout'
 require 'monitor'
 
 # Library to create futures for Ractors, Threads, and Fibers.
-module FlexFutures
+module AsynchronousFutures
   # Configurable logger for the library. Assumes the standard logger interface.
   attr_accessor :logger
 

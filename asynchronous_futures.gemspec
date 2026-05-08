@@ -1,21 +1,21 @@
 # frozen_string_literal: true
 
-require_relative 'lib/flex_futures/version'
+require_relative 'lib/asynchronous_futures/version'
 
 Gem::Specification.new do |spec|
-  spec.name = 'flex_futures'
-  spec.version = FlexFutures::VERSION
+  spec.name = 'asynchronous_futures'
+  spec.version = AsynchronousFutures::VERSION
   spec.authors = ['Ethan Estrada']
   spec.email = ['ethan@misterfidget.com']
 
   spec.summary = 'A Ruby Gem for creating futures for Ractors, Threads, and Fibers with an identical interface for all primitives. How flexible!' # rubocop:disable Layout/LineLength
   # spec.description = 'TODO: Write a longer description or delete this line.'
-  spec.homepage = 'https://github.com/eestrada/flex_futures'
+  spec.homepage = 'https://github.com/eestrada/asynchronous_futures'
   spec.required_ruby_version = '>= 3.3.0'
   spec.metadata['allowed_push_host'] = "TODO: Set to your gem server 'https://example.com'"
   spec.metadata['homepage_uri'] = spec.homepage
-  spec.metadata['source_code_uri'] = 'https://github.com/eestrada/flex_futures'
-  spec.metadata['changelog_uri'] = 'https://github.com/eestrada/flex_futures/blob/main/CHANGELOG.md'
+  spec.metadata['source_code_uri'] = 'https://github.com/eestrada/asynchronous_futures'
+  spec.metadata['changelog_uri'] = 'https://github.com/eestrada/asynchronous_futures/blob/main/CHANGELOG.md'
   spec.metadata['rubygems_mfa_required'] = 'true'
 
   # Specify which files should be added to the gem when it is released.

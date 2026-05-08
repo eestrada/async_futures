@@ -1,4 +1,4 @@
-# FlexFutures
+# AsynchronousFutures
 
 A Ruby Gem for creating futures for Ractors, Threads, and Fibers with an
 identical interface for all primitives. How flexible!
@@ -39,4 +39,4 @@ To install this gem onto your local machine, run `bundle exec rake install`. To 
 
 ## Contributing
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/eestrada/flex_futures.
+Bug reports and pull requests are welcome on GitHub at https://github.com/eestrada/asynchronous_futures.
