@@ -1,8 +1,15 @@
 # FlexFutures
 
-TODO: Delete this and the text below, and describe your gem
+A Ruby Gem for creating futures for Ractors, Threads, and Fibers with an
+identical interface for all primitives. How flexible!
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/flex_futures`. To experiment with that code, run `bin/console` for an interactive prompt.
+Ractors, Threads, and Fibers have a similar (but not identical) interface.
+FelxFutures fixes that: it has an abstract Executor interface used by pool
+implementations for `Ractor`, `Thread`, and `Fiber` classes. A `Future`
+instance is returned by all of these implementations.
+
+Now you can trivially test out which of these primitives works best for your
+code.
 
 ## Installation
 
