@@ -17,7 +17,11 @@ jobs:
     strategy:
       matrix:
         ruby:
+          - '3.3.11'
           - '3.4.9'
+          - '4.0.3'
+          - 'truffleruby'
+          - 'truffleruby+graalvm'
 
     steps:
       - uses: actions/checkout@v6
