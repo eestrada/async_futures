@@ -39,7 +39,7 @@ module AsynchronousFutures
       True
     end
 
-    # Return True if the call has not yet started.
+    # Return `True` if the call has not yet started.
     #
     # Not present on Python concurrent.futures.Future class.
     def pending?
@@ -48,7 +48,7 @@ module AsynchronousFutures
       end
     end
 
-    # Return True if the call finished running and was not cancelled.
+    # Return `True` if the call finished running and was not cancelled.
     #
     # Not present on Python concurrent.futures.Future class.
     def finished?
@@ -57,21 +57,21 @@ module AsynchronousFutures
       end
     end
 
-    # Return True if the call was successfully cancelled.
+    # Return `True` if the call was successfully cancelled.
     def cancelled?
       synchronize do
         [CANCELLED, CANCELLED_AND_NOTIFIED].include? @state
       end
     end
 
-    # Return True if the call is currently being executed and cannot be cancelled.
+    # Return `True` if the call is currently being executed and cannot be cancelled.
     def running?
       synchronize do
         @state.equal? RUNNING
       end
     end
 
-    # Return True if the call was successfully cancelled or finished running.
+    # Return `True` if the call was successfully cancelled or finished running.
     def done?
       synchronize do
         [CANCELLED, CANCELLED_AND_NOTIFIED, FINISHED].include? @state
