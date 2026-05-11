@@ -19,6 +19,5 @@ if defined?(SimpleCov)
 end
 
 $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
-require 'asynchronous_futures'
 
 require 'minitest/autorun'
