@@ -8,13 +8,14 @@ gemspec
 gem 'irb'
 gem 'rake'
 
-gem 'minitest'
-
-gem 'rubocop'
-gem 'rubocop-minitest'
-gem 'rubocop-rake'
-gem 'simplecov'
-gem 'simplecov-cobertura'
+group 'testing' do
+  gem 'minitest'
+  gem 'rubocop'
+  gem 'rubocop-minitest'
+  gem 'rubocop-rake'
+  gem 'simplecov'
+  gem 'simplecov-cobertura'
+end
 
 group 'development' do
   gem 'ruby-lsp'
