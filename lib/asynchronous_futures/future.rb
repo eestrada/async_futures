@@ -25,10 +25,10 @@ module AsynchronousFutures
     # finished running and cannot be cancelled then the method will return
     # `False`, otherwise the call will be cancelled and the method will return
     # `True`.
-    def cancel
+    def cancel # rubocop:disable Naming/PredicateMethod
       synchronize do
-        return True if cancelled?
-        return False if running? || finished?
+        return true if cancelled?
+        return false if running? || finished?
 
         # The only other state left is PENDING, so we can safely cancel.
         @state = CANCELLED
@@ -36,7 +36,7 @@ module AsynchronousFutures
       end
 
       invoke_callbacks
-      True
+      true
     end
 
     # Return `True` if the call has not yet started.
@@ -92,7 +92,7 @@ module AsynchronousFutures
     def result(timeout_sec = nil)
       timeout(timeout_sec) do
         synchronize do
-          @condition.wait_until(&done?)
+          @condition.wait_until(&method(:done?))
           raise CancelledError if cancelled?
 
           raise @exception if @exception
@@ -115,7 +115,7 @@ module AsynchronousFutures
     def exception(timeout_sec = nil)
       timeout(timeout_sec) do
         synchronize do
-          @condition.wait_until(&done?)
+          @condition.wait_until(&method(:done?))
           raise CancelledError if cancelled?
 
           @exception
@@ -155,10 +155,10 @@ module AsynchronousFutures
         case @state
         when CANCELLED
           @state = CANCELLED_AND_NOTIFIED
-          return False
+          return talse
         when PENDING
           @state = RUNNING
-          return True
+          return true
         else
           logger&.unknown { "Future #{self} in unexpected state #{@state}" }
           raise InvalidStateError.new('Future in unexpected state')
