@@ -2,10 +2,20 @@
 
 require 'bundler/gem_tasks'
 require 'minitest/test_task'
+require 'rubocop/rake_task'
 
 Minitest::TestTask.create
 
-require 'rubocop/rake_task'
+# https://github.com/simplecov-ruby/simplecov/issues/1032#issuecomment-2087973750
+Minitest::TestTask.create(:coverage) do |t|
+  # simplecov can be configured inside the `test/test_helper.rb` file, but it
+  # needs to be required before minitest, otherwise it's at_exit hook won't be
+  # registered in the correct order, which will cause coverage to be missed.
+  #
+  # Run `rake test:cmd` and `rake coverage:cmd` to see the difference.
+  t.test_prelude = 'require "simplecov"'
+  t.verbose = true
+end
 
 RuboCop::RakeTask.new
 

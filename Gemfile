@@ -13,13 +13,11 @@ gem 'minitest'
 gem 'rubocop'
 gem 'rubocop-minitest'
 gem 'rubocop-rake'
+gem 'simplecov'
+gem 'simplecov-cobertura'
 
 group 'development' do
   gem 'ruby-lsp'
-  gem 'simplecov'
   gem 'solargraph'
-  gem 'sorbet'
-  gem 'sorbet-runtime'
-  gem 'tapioca'
   gem 'yard'
 end
