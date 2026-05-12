@@ -2,11 +2,11 @@
 
 require_relative 'minitest_helper'
 
-require 'asynchronous_futures/executor'
+require 'async_futures/executor'
 
 class TestExecutor < Minitest::Test
   def setup
-    @executor = AsynchronousFutures::Executor
+    @executor = AsyncFutures::Executor
   end
 
   def test_submit_raises_argument_error_without_block
@@ -18,7 +18,7 @@ class TestExecutor < Minitest::Test
       [args, kwargs]
     end
 
-    assert_instance_of AsynchronousFutures::Future, future1
+    assert_instance_of AsyncFutures::Future, future1
 
     # Executor mixin module should run immediately and return a completed future.
     assert_predicate future1, :done?

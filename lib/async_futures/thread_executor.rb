@@ -2,8 +2,8 @@
 
 require_relative 'executor'
 
-module AsynchronousFutures
-  class FiberExecutor
+module AsyncFutures
+  class ThreadExecutor
     include Executor
   end
 end

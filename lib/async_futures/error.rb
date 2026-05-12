@@ -2,7 +2,7 @@
 
 require 'timeout'
 
-module AsynchronousFutures
+module AsyncFutures
   class Error < StandardError; end
 
   class ConcurrencyUnavailable < Error; end

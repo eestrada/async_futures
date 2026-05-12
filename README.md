@@ -1,4 +1,4 @@
-# AsynchronousFutures
+# AsyncFutures
 
 ## Launch asynchronous tasks
 
@@ -79,4 +79,4 @@ To install this gem onto your local machine, run `bundle exec rake install`. To 
 
 ## Contributing
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/eestrada/asynchronous_futures.
+Bug reports and pull requests are welcome on GitHub at https://github.com/eestrada/async_futures.

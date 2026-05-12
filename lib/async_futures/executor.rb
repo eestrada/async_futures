@@ -3,7 +3,7 @@
 require_relative 'error'
 require_relative 'future'
 
-module AsynchronousFutures
+module AsyncFutures
   # Executor mixin module. Has a simple implementation that just runs submitted
   # functions immediately and returns a completed Future. Can be used standalone
   # as a stateless Executor that runs submitted blocks immediately.

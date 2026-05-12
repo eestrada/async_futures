@@ -2,7 +2,7 @@
 
 require_relative 'executor'
 
-module AsynchronousFutures
+module AsyncFutures
   class RactorExecutor
     include Executor
   end

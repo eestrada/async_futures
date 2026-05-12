@@ -5,7 +5,7 @@ require_relative 'error'
 require 'timeout'
 require 'monitor'
 
-module AsynchronousFutures
+module AsyncFutures
   # Class for async execution results.
   class Future # rubocop:disable Metrics/ClassLength
     include MonitorMixin
