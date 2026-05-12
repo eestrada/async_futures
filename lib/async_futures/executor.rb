@@ -47,11 +47,9 @@ module AsyncFutures
       raise ConcurrencyUnavailable
     end
 
-    # Similar to map(fn, *enumerator) except:
+    # Similar to enumerator.map(&block) except:
     #
-    # the enumerator are collected immediately rather than lazily;
-    #
-    # fn is executed asynchronously and several calls to fn may be made
+    # block is executed asynchronously and several calls to block may be made
     # concurrently.
     #
     # The returned iterator raises a TimeoutError if __next__() is called and
@@ -59,7 +57,7 @@ module AsyncFutures
     # Executor.map(). timeout can be an int or a float. If timeout is not
     # specified or None, there is no limit to the wait time.
     #
-    # If a fn call raises an exception, then that exception will be raised when
+    # If a block call raises an exception, then that exception will be raised when
     # its value is retrieved from the iterator.
     #
     # When using ProcessPoolExecutor, this method chops enumerator into a number
@@ -68,7 +66,7 @@ module AsyncFutures
     # to a positive integer. For very long enumerator, using a large value for
     # chunksize can significantly improve performance compared to the default
     # size of 1. With ThreadPoolExecutor, chunksize has no effect.
-    def map(*enumerator, timeout_sec: nil, &block) # rubocop:disable Lint/UnusedMethodArgument
+    def map(enumerator, timeout_sec: nil, &block) # rubocop:disable Lint/UnusedMethodArgument
       # Use `to_a` in case the enumerator is lazy (we *want* to be eager in this
       # circumstance).
       futures = enumerator.map { |args| submit(args, &block) }.to_a
@@ -119,7 +117,7 @@ module AsyncFutures
     #     e.submit('src3.txt', 'dest3.txt', &FileUtils.cp)
     #     e.submit('src4.txt', 'dest4.txt', &FileUtils.cp)
     # end
-    def shutdown(wait: True, cancel_futures: False, &block) # rubocop:disable Lint/UnusedMethodArgument
+    def shutdown(wait: true, cancel_futures: false, &block) # rubocop:disable Lint/UnusedMethodArgument
       block&.call(self)
     ensure # rubocop:disable Lint/EmptyEnsure
       # Cleanup logic goes here
