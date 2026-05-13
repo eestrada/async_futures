@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative 'logger'
 require_relative 'error'
 
 require 'timeout'
@@ -19,6 +20,10 @@ module AsyncFutures
       @exception = nil
       @waiters = []
       @done_callbacks = []
+    end
+
+    def logger
+      AsyncFutures.logger
     end
 
     # Attempt to cancel the call. If the call is currently being executed or
