@@ -29,6 +29,11 @@ namespace :rbs do
       end
     end
   end
+
+  desc 'Validate RBS files'
+  task :validate do
+    sh 'bundle', 'exec', 'rbs', 'validate'
+  end
 end
 
-task default: %i[rubocop coverage]
+task default: %i[rbs:validate rubocop coverage]
