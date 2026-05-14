@@ -18,6 +18,7 @@ end
 group 'development' do
   gem 'irb'
   gem 'rbs'
+  gem 'rdoc'
   gem 'ruby-lsp'
   gem 'solargraph'
   gem 'yard'

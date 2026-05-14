@@ -3,6 +3,7 @@
 require 'bundler/gem_tasks'
 require 'minitest/test_task'
 require 'rubocop/rake_task'
+require 'rdoc/task'
 
 Minitest::TestTask.create
 
@@ -34,6 +35,15 @@ namespace :rbs do
   task :validate do
     sh 'bundle', 'exec', 'rbs', 'validate'
   end
+end
+
+RDoc::Task.new do |rdoc|
+  rdoc.markup = 'markdown'
+  rdoc.main = 'README.md'
+  rdoc.rdoc_files.include('README.md', 'lib/**/*.rb')
+
+  # `docs` directory is what GitHub currently supports as pages source.
+  rdoc.rdoc_dir = 'docs'
 end
 
 task default: %i[rbs:validate rubocop coverage]
