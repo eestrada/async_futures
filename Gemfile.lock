@@ -146,6 +146,7 @@ DEPENDENCIES
   irb
   minitest
   rake
+  rbs
   rubocop
   rubocop-minitest
   rubocop-rake

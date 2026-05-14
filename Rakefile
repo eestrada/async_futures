@@ -19,4 +19,16 @@ end
 
 RuboCop::RakeTask.new
 
+namespace :rbs do
+  desc 'Generate prototypes for all library files'
+  task :prototype do
+    Dir.chdir('lib') do
+      Dir.glob('**/*.rb').each do |e|
+        FileUtils.mkdir_p("../sig/#{File.dirname(e)}")
+        sh "bundle exec rbs prototype rb '#{e}' > '../sig/#{e}s'"
+      end
+    end
+  end
+end
+
 task default: %i[rubocop coverage]

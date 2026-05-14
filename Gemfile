@@ -2,14 +2,12 @@
 
 source 'https://rubygems.org'
 
-# Specify your gem's dependencies in any-future.gemspec
+# Specify your gem's dependencies in async_future.gemspec
 gemspec
-
-gem 'irb'
-gem 'rake'
 
 group 'testing' do
   gem 'minitest'
+  gem 'rake'
   gem 'rubocop'
   gem 'rubocop-minitest'
   gem 'rubocop-rake'
@@ -18,6 +16,8 @@ group 'testing' do
 end
 
 group 'development' do
+  gem 'irb'
+  gem 'rbs'
   gem 'ruby-lsp'
   gem 'solargraph'
   gem 'yard'
