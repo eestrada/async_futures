@@ -79,4 +79,4 @@ To install this gem onto your local machine, run `bundle exec rake install`. To 
 
 ## Contributing
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/eestrada/async_futures.
+Bug reports and pull requests are welcome on Codeberg at <https://codeberg.org/eestrada/async_futures>.

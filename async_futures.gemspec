@@ -8,14 +8,15 @@ Gem::Specification.new do |spec|
   spec.authors = ['Ethan Estrada']
   spec.email = ['ethan@misterfidget.com']
 
-  spec.summary = 'A Ruby Gem for creating futures for Ractors, Threads, and Fibers with an identical interface for all primitives. How flexible!' # rubocop:disable Layout/LineLength
+  spec.summary = 'A generic Future class for Ruby. Also includes Executor implementations for Ractors, Threads, and Fibers.' # rubocop:disable Layout/LineLength
   # spec.description = 'TODO: Write a longer description or delete this line.'
-  spec.homepage = 'https://github.com/eestrada/async_futures'
+  spec.homepage = 'https://codeberg.org/eestrada/async_futures'
+  spec.license = '0BSD'
   spec.required_ruby_version = '>= 3.3.0'
   spec.metadata['allowed_push_host'] = "TODO: Set to your gem server 'https://example.com'"
   spec.metadata['homepage_uri'] = spec.homepage
-  spec.metadata['source_code_uri'] = 'https://github.com/eestrada/async_futures'
-  spec.metadata['changelog_uri'] = 'https://github.com/eestrada/async_futures/blob/main/CHANGELOG.md'
+  spec.metadata['source_code_uri'] = 'https://codeberg.org/eestrada/async_futures'
+  spec.metadata['changelog_uri'] = 'https://codeberg.org/eestrada/async_futures/blob/main/CHANGELOG.md'
   spec.metadata['rubygems_mfa_required'] = 'true'
 
   # Specify which files should be added to the gem when it is released.
