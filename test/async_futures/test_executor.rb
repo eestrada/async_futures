@@ -45,7 +45,7 @@ class TestExecutor < Minitest::Test
   end
 
   def test_submit_concurrent_raises
-    assert_raises(AsyncFutures::ConcurrencyUnavailable) do
+    assert_raises(AsyncFutures::NoConcurrencyError) do
       @executor.submit_concurrent(1, 2, 3, 4, tell_me: 'that you love me more') do |*args, **kwargs|
         raise "Some runtime error #{args} #{kwargs}"
       end

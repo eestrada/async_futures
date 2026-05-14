@@ -44,7 +44,7 @@ module AsyncFutures
     # Executor must support concurrency otherwise this method will raise the
     # exception `ConcurrencyUnavailable`.
     def submit_concurrent(*args, **kwargs, &block) # rubocop:disable Lint/UnusedMethodArgument,Naming/BlockForwarding
-      raise ConcurrencyUnavailable
+      raise NoConcurrencyError
     end
 
     # Similar to enumerator.map(&block) except:
