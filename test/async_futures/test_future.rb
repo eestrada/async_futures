@@ -22,6 +22,24 @@ class TestFuture < Minitest::Test
     assert_predicate future1, :running?
   end
 
+  def test_set_result_cannot_be_called_twice
+    future1 = AsyncFutures::Future.new
+    future1.set_running_or_notify_cancel
+    future1.set_result(42)
+    raised_exc = assert_raises(AsyncFutures::InvalidStateError) { future1.set_result(43) }
+    assert_match(/FINISHED: /, raised_exc.message)
+    assert_equal 42, future1.result
+  end
+
+  def test_set_exception_cannot_be_called_twice
+    future1 = AsyncFutures::Future.new
+    future1.set_running_or_notify_cancel
+    test_exception = RuntimeError.new('A test exception')
+    future1.set_exception(test_exception)
+    raised_exc = assert_raises(AsyncFutures::InvalidStateError) { future1.set_exception(test_exception) }
+    assert_match(/FINISHED: /, raised_exc.message)
+  end
+
   def test_set_exception_causes_result_to_raise_exception
     future1 = AsyncFutures::Future.new
     future1.set_running_or_notify_cancel
