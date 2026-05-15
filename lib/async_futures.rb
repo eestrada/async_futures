@@ -6,20 +6,15 @@ require 'logger'
 # Library to create Future instances.
 # Has Executor implementations for for Ractor, Thread, and Fiber primitives.
 #
-# This module sets a default logger that logs to `$stdout`.
+# This module sets a default logger that logs to `IO::NULL`.
 # If you want/need to log somewhere else, do the following:
 #
-#     require 'async_futures/logger'
-#     AsyncFutures.logger = Logger.new('/dev/null')
 #     require 'async_futures'
-#
-# This loads the logger portion, sets it to a value immediately,
-# then loads the rest of the library files.
-# In this case the default `$stdout` logger will not be created or set.
+#     AsyncFutures.logger = Logger.new($stdout)
 #
 module AsyncFutures
   # Lazily set a default value that just prints to $stdout
-  self.logger ||= Logger.new($stdout)
+  self.logger ||= Logger.new(IO::NULL)
 end
 
 # require_relative *after* default logger defined.

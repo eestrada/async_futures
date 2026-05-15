@@ -56,7 +56,7 @@ class TestExecutor < Minitest::Test
     enum = [1, 2, 3, 4]
     map_result = @executor.map(enum, &:to_s)
 
-    refute_instance_of Array, map_result
+    assert_instance_of Enumerator::Lazy, map_result
 
     first = map_result.to_a[0]
     last = map_result.to_a[3]
