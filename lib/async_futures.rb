@@ -1,24 +1,7 @@
 # frozen_string_literal: true
 
-require_relative 'async_futures/logger'
-require 'logger'
-
-# Library to create Future instances.
-# Has Executor implementations for for Ractor, Thread, and Fiber primitives.
-#
-# This module sets a default logger that logs to `IO::NULL`.
-# If you want/need to log somewhere else, do the following:
-#
-#     require 'async_futures'
-#     AsyncFutures.logger = Logger.new($stdout)
-#
-module AsyncFutures
-  # Lazily set a default value that just prints to $stdout
-  self.logger ||= Logger.new(IO::NULL)
-end
-
-# require_relative *after* default logger defined.
 # In order of dependency (roughly)
+require_relative 'async_futures/logger'
 require_relative 'async_futures/version'
 require_relative 'async_futures/error'
 require_relative 'async_futures/future'
@@ -26,3 +9,8 @@ require_relative 'async_futures/executor'
 require_relative 'async_futures/fiber_executor'
 require_relative 'async_futures/ractor_executor'
 require_relative 'async_futures/thread_executor'
+
+# Library to create Future instances.
+# Has Executor implementations for for Ractor, Thread, and Fiber primitives.
+module AsyncFutures
+end
