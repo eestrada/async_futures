@@ -22,6 +22,24 @@ class TestFuture < Minitest::Test
     assert_predicate future1, :running?
   end
 
+  def test_set_result_invokes_callbacks
+    future1 = AsyncFutures::Future.new
+    future1.set_running_or_notify_cancel
+    ary = []
+    future1.add_done_callback do |f|
+      ary << 'callback1'
+
+      assert_same future1, f
+    end
+    future1.add_done_callback { ary << 'callback2' }
+
+    assert_empty ary
+    future1.set_result(42)
+
+    refute_empty ary
+    assert_equal %w[callback1 callback2], ary
+  end
+
   def test_set_result_cannot_be_called_twice
     future1 = AsyncFutures::Future.new
     future1.set_running_or_notify_cancel
