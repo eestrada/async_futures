@@ -40,6 +40,25 @@ class TestFuture < Minitest::Test
     assert_equal %w[callback1 callback2], ary
   end
 
+  def test_invokes_callbacks_does_not_raise
+    future1 = AsyncFutures::Future.new
+    future1.set_running_or_notify_cancel
+    ary = []
+    future1.add_done_callback do
+      ary << 'callback1'
+      raise 'Any error'
+    end
+    future1.add_done_callback { ary << 'callback2' }
+
+    assert_empty ary
+
+    # should not raise any exceptions
+    future1.set_result(42)
+
+    refute_empty ary
+    assert_equal %w[callback1 callback2], ary
+  end
+
   def test_set_result_cannot_be_called_twice
     future1 = AsyncFutures::Future.new
     future1.set_running_or_notify_cancel
