@@ -49,6 +49,14 @@ class TestFuture < Minitest::Test
     assert_same test_exception, raised_exc
   end
 
+  def test_set_exception_without_exception_raises_argument_error
+    future1 = AsyncFutures::Future.new
+    future1.set_running_or_notify_cancel
+    not_exception = 'Some random value'
+    raised_exc = assert_raises(ArgumentError) { future1.set_exception(not_exception) }
+    assert_match(/"Some random value"/, raised_exc.message)
+  end
+
   def test_cancel_causes_result_to_raise_cancelled_error
     future1 = AsyncFutures::Future.new
     future1.cancel

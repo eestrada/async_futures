@@ -184,6 +184,7 @@ module AsyncFutures
     def set_exception(exception) # rubocop:disable Naming/AccessorMethodName
       synchronize do
         raise InvalidStateError.new("#{@state}: #{self}") if done?
+        raise ArgumentError.new("Not an Exception: #{exception.inspect}") unless exception.is_a?(Exception)
 
         @exception = exception
         @state = FINISHED
@@ -197,17 +198,24 @@ module AsyncFutures
     AS_COMPLETED = :_AS_COMPLETED
 
     # Possible future states (for internal use by the futures package).
-    PENDING = :PENDING
-    RUNNING = :RUNNING
-    # The future was cancelled by the user...
-    CANCELLED = :CANCELLED
-    # ...and _Waiter.add_cancelled() was called by a worker.
 
+    # Not yet started.
+    PENDING = :PENDING
+
+    # Has a worker doing work to complete it.
+    RUNNING = :RUNNING
+
+    # The future was cancelled.
+    CANCELLED = :CANCELLED
+
+    # `_Waiter.add_cancelled()` was called by a worker.
     # FIXME: I'm 99% certain that the waiter and notify stuff has to do with
     # Python's implementation of Process/Pipe based parallelism. This will
     # probably still be needed for Ractors and Ports, but I don't understand it
     # well enough to add it yet. It will need to wait for another day.
     CANCELLED_AND_NOTIFIED = :CANCELLED_AND_NOTIFIED
+
+    # Finished running, via either success or exception.
     FINISHED = :FINISHED
 
     private
