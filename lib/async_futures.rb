@@ -11,6 +11,7 @@ require_relative 'async_futures/ractor_executor'
 require_relative 'async_futures/thread_executor'
 
 # Library to create Future instances.
-# Has Executor implementations for for Ractor, Thread, and Fiber primitives.
+#
+# Has Executor implementations for Ractor, Thread, and Fiber primitives.
 module AsyncFutures
 end

@@ -37,6 +37,7 @@ namespace :rbs do
   end
 end
 
+# https://docs.ruby-lang.org/en/3.4/RDoc/Task.html
 RDoc::Task.new do |rdoc|
   rdoc.markup = 'markdown'
   rdoc.main = 'README.md'
