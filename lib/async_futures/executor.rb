@@ -21,6 +21,9 @@ module AsyncFutures
   module Executor
     # Schedules the block, to be executed as `block.call(*args, **kwargs)` and
     # returns a `Future` object representing the execution of the block.
+    #
+    # Under some circumstances may run immediately and synchronously
+    # and return an already completed `Future` object.
     def submit(*args, **kwargs, &block) # rubocop:disable Style/ArgumentsForwarding
       raise ArgumentError.new('No block given') unless block
 
@@ -42,7 +45,14 @@ module AsyncFutures
     # returns a `Future` object representing the execution of the block.
     #
     # Executor must support concurrency otherwise this method will raise the
-    # exception `ConcurrencyUnavailable`.
+    # exception `NoConcurrencyError`.
+    #
+    # This method must *never* run the block to completion before returning.
+    # This could cause a serious deadlock condition that cannot be overcome.
+    # If an implementation cannot schedule this to run concurrently
+    # it is better for it to raise an exception such as `NoConcurrencyError`.
+    # This at least allows the caller an opportunity to recover
+    # instead of potentially deadlocking.
     def submit_concurrent(*args, **kwargs, &block) # rubocop:disable Lint/UnusedMethodArgument,Naming/BlockForwarding
       raise NoConcurrencyError
     end
