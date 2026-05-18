@@ -4,23 +4,28 @@ require_relative 'error'
 require_relative 'future'
 
 module AsyncFutures
-  # Executor mixin module. Has a simple implementation that just runs submitted
-  # functions immediately and returns a completed Future. Can be used standalone
-  # as a stateless Executor that runs submitted blocks immediately.
+  # `Executor` mixin module.
+  # Has a simple implementation
+  # that just runs submitted blocks immediately
+  # and returns a completed `Future`.
+  # Can be used standalone as a stateless `Executor`
+  # that runs submitted blocks immediately.
   #
   # Classes using this mixin should override the `submit` method.
   #
   # `shutdown` should be overridden if there is cleanup to be performed.
   #
-  # If an implementation wants to signal that it supports true concurrency, it
-  # should override `submit_concurrent`; this can be as simple as aliasing it to
-  # the previously overridden `submit` method.
+  # If an implementation wants to signal that it supports true concurrency,
+  # it should override the `submit_concurrent` method;
+  # this can be as simple as aliasing it
+  # to the previously overridden `submit` method.
   #
-  # The `map` method should *never* be overridden. This is already logically
-  # correct and should work with any Executor implementation.
+  # The `map` method should *never* be overridden.
+  # This is already logically correct
+  # and should work with any `Executor` implementation.
   module Executor
-    # Schedules the block, to be executed as `block.call(*args, **kwargs)` and
-    # returns a `Future` object representing the execution of the block.
+    # Schedules the block, to be executed as `block.call(*args, **kwargs)`
+    # and returns a `Future` object representing the execution of the block.
     #
     # Under some circumstances may run immediately and synchronously
     # and return an already completed `Future` object.
