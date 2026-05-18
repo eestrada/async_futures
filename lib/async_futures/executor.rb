@@ -90,7 +90,7 @@ module AsyncFutures
     # Executor.submit() and Executor.map() made after shutdown will raise
     # RuntimeError.
     #
-    # If `wait` is `True` then this method will not return until all the pending
+    # If `wait` is `true` then this method will not return until all the pending
     # futures are done executing and the resources associated with the executor
     # have been freed. If `wait` is `False` then this method will return immediately
     # and the resources associated with the executor will be freed when all
@@ -98,25 +98,27 @@ module AsyncFutures
     # entire Python program will not exit until all pending futures are done
     # executing.
     #
-    # If `cancel_futures` is `True`, this method will cancel all pending futures
+    # If `cancel_futures` is `true`, this method will cancel all pending futures
     # that the executor has not started running. Any futures that are completed
     # or running won’t be cancelled, regardless of the value of `cancel_futures`.
     #
-    # If both `cancel_futures` and `wait` are `True`, all futures that the executor
+    # If both `cancel_futures` and `wait` are `true`, all futures that the executor
     # has started running will be completed prior to this method returning. The
     # remaining futures are cancelled.
     #
-    # You can ensure this gets called under all circumstances by calling this
-    # method with a block. The block will be called and then any shutdown
-    # cleanup logic will be run after the block completes. The block will be
-    # passed one parameter: the executor instance.
+    # You can ensure this gets called under all circumstances
+    # by calling this method with a block.
+    # The block will be called
+    # and then any shutdown cleanup logic will be run
+    # after the block completes.
+    # The block will be passed one parameter: the executor instance.
     #
-    # ThreadExecutor.new(max_workers: 4).shutdown do |e|
-    #     e.submit('src1.txt', 'dest1.txt', &FileUtils.cp)
-    #     e.submit('src2.txt', 'dest2.txt', &FileUtils.cp)
-    #     e.submit('src3.txt', 'dest3.txt', &FileUtils.cp)
-    #     e.submit('src4.txt', 'dest4.txt', &FileUtils.cp)
-    # end
+    #     ThreadExecutor.new(max_workers: 4).shutdown do |e|
+    #         e.submit('src1.txt', 'dest1.txt', &FileUtils.method(:cp))
+    #         e.submit('src2.txt', 'dest2.txt', &FileUtils.method(:cp))
+    #         e.submit('src3.txt', 'dest3.txt', &FileUtils.method(:cp))
+    #         e.submit('src4.txt', 'dest4.txt', &FileUtils.method(:cp))
+    #     end
     def shutdown(wait: true, cancel_futures: false, &block) # rubocop:disable Lint/UnusedMethodArgument
       block&.call(self)
     ensure # rubocop:disable Lint/EmptyEnsure
