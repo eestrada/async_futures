@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-# SimpleCov will be previously required (and thus defined) *only* by the
-# `coverage` rake task.
+# SimpleCov will be previously required (and thus defined)
+# *only* by the `coverage` rake task.
 if defined?(SimpleCov)
   require 'simplecov'
   require 'simplecov-html'
