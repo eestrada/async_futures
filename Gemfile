@@ -7,6 +7,7 @@ gemspec
 
 group 'testing' do
   gem 'minitest'
+  gem 'minitest-mock'
   gem 'rake'
   gem 'rubocop'
   gem 'rubocop-minitest'

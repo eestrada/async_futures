@@ -4,7 +4,7 @@ require_relative 'minitest_helper'
 
 require 'async_futures/future'
 
-class TestFuture < Minitest::Test
+class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
   def test_new_future_should_be_pending
     future1 = AsyncFutures::Future.new
 
@@ -38,6 +38,79 @@ class TestFuture < Minitest::Test
 
     refute_empty ary
     assert_equal %w[callback1 callback2], ary
+  end
+
+  def test_adding_callback_after_completion_still_calls_callback
+    future1 = AsyncFutures::Future.new
+    future1.set_running_or_notify_cancel
+    future1.set_result(42)
+    ary = []
+    future1.add_done_callback do
+      ary << 'callback1'
+      raise 'Any error'
+    end
+    future1.add_done_callback { ary << 'callback2' }
+
+    refute_empty ary
+    assert_equal %w[callback1 callback2], ary
+  end
+
+  def test_late_callbacks_that_raise_will_log_errors
+    future1 = AsyncFutures::Future.new
+    future1.set_running_or_notify_cancel
+    future1.set_result(42)
+
+    @mock = Minitest::Mock.new
+    AsyncFutures.logger = @mock
+    @mock.expect :error, nil
+
+    ary = []
+    future1.add_done_callback do
+      raise 'Any error'
+      ary << 'callback1' # rubocop:disable Lint/UnreachableCode
+    end
+    future1.add_done_callback { ary << 'callback2' }
+
+    refute_empty ary
+    assert_equal %w[callback2], ary
+
+    @mock.verify
+  ensure
+    AsyncFutures.logger = nil
+  end
+
+  def test_add_callback_requires_block
+    future1 = AsyncFutures::Future.new
+    future1.set_running_or_notify_cancel
+    exc = assert_raises(ArgumentError) { future1.add_done_callback }
+    assert_match(/No block given/, exc.message)
+  end
+
+  def test_callbacks_that_raise_will_log_errors
+    future1 = AsyncFutures::Future.new
+    future1.set_running_or_notify_cancel
+    ary = []
+    future1.add_done_callback do
+      raise 'Any error'
+      ary << 'callback1' # rubocop:disable Lint/UnreachableCode
+    end
+    future1.add_done_callback { ary << 'callback2' }
+
+    assert_empty ary
+
+    @mock = Minitest::Mock.new
+    AsyncFutures.logger = @mock
+    @mock.expect :error, nil
+
+    # should not raise any exceptions
+    future1.set_result(42)
+
+    refute_empty ary
+    assert_equal %w[callback2], ary
+
+    @mock.verify
+  ensure
+    AsyncFutures.logger = nil
   end
 
   def test_invokes_callbacks_does_not_raise
@@ -112,10 +185,25 @@ class TestFuture < Minitest::Test
     future1 = AsyncFutures::Future.new
 
     refute_predicate future1, :cancelled?
-    assert_equal true, future1.cancel # rubocop:disable Minitest/AssertTruthy
+    assert_same true, future1.cancel
     assert_predicate future1, :cancelled?
-    assert_equal true, future1.cancel # rubocop:disable Minitest/AssertTruthy
+    assert_same true, future1.cancel
     assert_predicate future1, :cancelled?
+  end
+
+  def test_calling_set_running_twice_logs_properly
+    @mock = Minitest::Mock.new
+    AsyncFutures.logger = @mock
+    @mock.expect :unknown, nil
+
+    future1 = AsyncFutures::Future.new
+    future1.set_running_or_notify_cancel
+    raised_exc = assert_raises(AsyncFutures::InvalidStateError) { future1.set_running_or_notify_cancel }
+    assert_same 'Future in unexpected state', raised_exc.message
+
+    @mock.verify
+  ensure
+    AsyncFutures.logger = nil
   end
 
   def test_calling_set_running_twice_raises_exception
@@ -123,5 +211,13 @@ class TestFuture < Minitest::Test
     future1.set_running_or_notify_cancel
     raised_exc = assert_raises(AsyncFutures::InvalidStateError) { future1.set_running_or_notify_cancel }
     assert_same 'Future in unexpected state', raised_exc.message
+  end
+
+  def test_calling_set_running_after_cancel_returns_false
+    future1 = AsyncFutures::Future.new
+    future1.cancel
+    value1 = future1.set_running_or_notify_cancel
+
+    assert_same false, value1
   end
 end

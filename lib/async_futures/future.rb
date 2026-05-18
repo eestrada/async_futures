@@ -160,7 +160,7 @@ module AsyncFutures
         case @state
         when CANCELLED
           @state = CANCELLED_AND_NOTIFIED
-          return talse
+          return false
         when PENDING
           @state = RUNNING
           return true
