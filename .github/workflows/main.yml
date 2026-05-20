@@ -14,7 +14,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      BUNDLE_ONLY: 'testing'
+      BUNDLE_WITHOUT: 'development'
     name: Ruby ${{ matrix.ruby }}
     strategy:
       matrix:

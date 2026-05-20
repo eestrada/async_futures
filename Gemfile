@@ -9,6 +9,7 @@ group 'testing' do
   gem 'minitest'
   gem 'minitest-mock'
   gem 'rake'
+  gem 'rdoc'
   gem 'rubocop'
   gem 'rubocop-minitest'
   gem 'rubocop-rake'
@@ -19,7 +20,6 @@ end
 group 'development' do
   gem 'irb'
   gem 'rbs'
-  gem 'rdoc'
   gem 'ruby-lsp'
   gem 'solargraph'
   gem 'yard'
