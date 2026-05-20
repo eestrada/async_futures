@@ -158,6 +158,7 @@ PLATFORMS
 DEPENDENCIES
   async_futures!
   irb
+  logger
   minitest
   minitest-mock
   rake
