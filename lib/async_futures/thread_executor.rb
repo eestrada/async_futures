@@ -3,6 +3,7 @@
 require_relative 'executor'
 
 require 'etc'
+require 'set' # rubocop:disable Lint/RedundantRequireStatement
 
 module AsyncFutures
   # `Executor` implementation based on `Thread` primitives
@@ -21,7 +22,8 @@ module AsyncFutures
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
       @thread_name_prefix = thread_name_prefix.to_s
       @tasks = Thread::Queue.new
-      @pool = []
+      @pool = Set.new
+      @cond = new_cond
     end
 
     # Asynchronously submit a task for execution.
@@ -29,15 +31,20 @@ module AsyncFutures
     def submit(*args, **kwargs, &block) # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
       raise ArgumentError.new('No block given') unless block
 
-      Future.new.tap do |future|
+      synchronize do
         raise 'ThreadExecutor instance is shutdown' if @tasks.closed?
 
-        @tasks.push([future, block, args, kwargs])
+        Future.new.tap do |future|
+          @tasks.push([future, block, args, kwargs])
 
-        # synchronize when interacting directly with @pool
-        synchronize do
+          # synchronize when interacting directly with @pool
           if @pool.empty? || (@tasks.size > 1 && @pool.size < @max_workers)
-            @pool << Thread.new(@thread_name_prefix, @tasks) do |thread_name_prefix, tasks|
+            @pool << Thread.new(
+              @thread_name_prefix,
+              @tasks,
+              @pool,
+              method(:synchronize)
+            ) do |thread_name_prefix, tasks, pool, sync_proc|
               Thread.current.name = "#{thread_name_prefix}_#{Thread.current.name}" unless thread_name_prefix.empty?
 
               while (task = tasks.pop)
@@ -53,6 +60,10 @@ module AsyncFutures
                   future.set_result(result)
                 end
               end
+            ensure
+              sync_proc.call do
+                pool.delete Thread.current
+              end
             end
           end
         end
@@ -64,19 +75,24 @@ module AsyncFutures
     def shutdown(wait: true, cancel_futures: false, &block)
       block&.call(self)
     ensure
-      @tasks.close
+      synchronize do
+        @tasks.close
 
-      if cancel_futures
-        while (task = @tasks.pop)
-          future = task[0]
-          future.cancel
+        if cancel_futures
+          while (task = @tasks.pop)
+            future = task[0]
+            future.cancel
+          end
+        end
+
+        if wait
+          @pool.dup.each do |thread|
+            @cond.wait_until { thread.join(0) }
+            @pool.delete thread
+            @cond.broadcast
+          end
         end
       end
-
-      # TODO: Is there a race condition?
-      # Do I need to synchronize this twice?
-      # It's late and I can't think straight about race conditions clearly.
-      synchronize { @pool.each(&:join) } if wait
     end
   end
 end
