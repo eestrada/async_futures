@@ -13,9 +13,20 @@ if defined?(SimpleCov)
       SimpleCov::Formatter::CoberturaFormatter,
     ]
 
-    enable_coverage :branch
     add_filter '/test/'
-    minimum_coverage line: 100, branch: 100 unless /truffleruby/ === RUBY_ENGINE
+
+    case RUBY_ENGINE
+    when /jruby/
+      # No branch coverage for jruby
+      minimum_coverage line: 100
+    when /truffleruby/
+      # No minimum_coverage coverage for truffleruby
+      enable_coverage :branch
+    else
+      # MRI can do everything
+      enable_coverage :branch
+      minimum_coverage line: 100, branch: 100
+    end
   end
 end
 
