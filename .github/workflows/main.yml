@@ -17,6 +17,7 @@ jobs:
       BUNDLE_WITHOUT: 'development'
     name: Ruby ${{ matrix.ruby }}
     strategy:
+      fail-fast: false
       matrix:
         ruby:
           - '3.3.11'
