@@ -48,16 +48,16 @@ module AsyncFutures
               Thread.current.name = "#{thread_name_prefix}_#{Thread.current.name}" unless thread_name_prefix.empty?
 
               while (task = tasks.pop)
-                future, block, args, kwargs = task
+                tfuture, tblock, targs, tkwargs = task
 
-                next unless future.set_running_or_notify_cancel
+                next unless tfuture.set_running_or_notify_cancel
 
                 begin
-                  result = block.call(*args, **kwargs)
+                  result = tblock.call(*targs, **tkwargs)
                 rescue Exception => e # rubocop:disable Lint/RescueException
-                  future.set_exception(e)
+                  tfuture.set_exception(e)
                 else
-                  future.set_result(result)
+                  tfuture.set_result(result)
                 end
               end
             ensure
