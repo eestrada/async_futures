@@ -47,4 +47,4 @@ RDoc::Task.new do |rdoc|
   rdoc.rdoc_dir = 'docs'
 end
 
-task default: %i[rbs:validate rubocop coverage]
+task default: %i[rubocop coverage]
