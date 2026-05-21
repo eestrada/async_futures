@@ -30,45 +30,19 @@ module AsyncFutures
 
     # Asynchronously submit a task for execution.
     # For `ThreadExecutor` the tasks are always executed concurrently.
-    def submit(*args, **kwargs, &block) # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
+    def submit(*args, **kwargs, &block)
       raise ArgumentError.new('No block given') unless block
       raise 'ThreadExecutor instance is shutdown' if @tasks.closed?
 
       Future.new.tap do |future|
         @tasks.push([future, block, args, kwargs])
-
-        # synchronize when interacting directly with @pool
-        if synchronize { @pool.empty? } || (@tasks.size > 1 && synchronize { @pool.size } < @max_workers)
-          thread = Thread.new(
-            @thread_name_prefix,
-            @tasks,
-            @pool,
-            method(:synchronize)
-          ) do |thread_name_prefix, tasks, pool, sync_proc|
-            Thread.current.name = "#{thread_name_prefix}_#{Thread.current.name}" unless thread_name_prefix.empty?
-
-            while (task = tasks.pop)
-              tfuture, tblock, targs, tkwargs = task
-
-              next unless tfuture.set_running_or_notify_cancel
-
-              begin
-                result = tblock.call(*targs, **tkwargs)
-              rescue Exception => e # rubocop:disable Lint/RescueException
-                tfuture.set_exception(e)
-              else
-                tfuture.set_result(result)
-              end
-            end
-          ensure
-            sync_proc.call { pool.delete Thread.current }
-          end
-          synchronize { @pool.add thread }
-        end
+        maybe_spawn_worker
       end
     end
 
     alias submit_concurrent submit
+
+    public :map
 
     def shutdown(wait: true, cancel_futures: false, &block)
       block&.call(self)
@@ -88,6 +62,36 @@ module AsyncFutures
           synchronize { @pool.delete thread }
         end
       end
+    end
+
+    private
+
+    def maybe_spawn_worker
+      # synchronize when interacting directly with @pool
+      spawn_worker unless synchronize { @pool.empty? } || (@tasks.size > 1 && synchronize { @pool.size } < @max_workers)
+    end
+
+    def spawn_worker # rubocop:disable Metrics/AbcSize
+      thread = Thread.new do
+        Thread.current.name = "#{@thread_name_prefix}_#{Thread.current.name}" unless @thread_name_prefix.empty?
+
+        while (task = @tasks.pop)
+          tfuture, tblock, targs, tkwargs = task
+
+          next unless tfuture.set_running_or_notify_cancel
+
+          begin
+            result = tblock.call(*targs, **tkwargs)
+          rescue Exception => e # rubocop:disable Lint/RescueException
+            tfuture.set_exception(e)
+          else
+            tfuture.set_result(result)
+          end
+        end
+      ensure
+        synchronize { @pool.delete Thread.current }
+      end
+      synchronize { @pool.add thread }
     end
   end
 end

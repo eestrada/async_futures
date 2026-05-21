@@ -10,7 +10,7 @@ class TestThreadExecutor < Minitest::Test
   end
 
   def teardown
-    @executor.shutdown(wait: false)
+    @executor.shutdown(wait: true)
   end
 
   def test_submit_raises_argument_error_without_block
@@ -23,9 +23,11 @@ class TestThreadExecutor < Minitest::Test
     end
 
     assert_instance_of AsyncFutures::Future, future1
+    assert_predicate future1, :pending?
 
-    # Executor mixin module should run immediately and return a completed future.
-    # assert_predicate future1, :done?
+    sleep 0.1
+
+    assert_predicate future1, :running?
 
     result = future1.result(1)
 
@@ -36,9 +38,13 @@ class TestThreadExecutor < Minitest::Test
   end
 
   def test_submit_raises_returns_exceptional_future
+    before_count = Thread.list.size
     future1 = @executor.submit(1, 2, 3, 4, tell_me: 'that you love me more') do |*args, **kwargs|
       raise "Some runtime error #{args} #{kwargs}"
     end
+    after_count = Thread.list.size
+
+    refute_equal after_count, before_count
 
     assert_instance_of AsyncFutures::Future, future1
 
@@ -60,12 +66,14 @@ class TestThreadExecutor < Minitest::Test
 
     assert_instance_of Enumerator::Lazy, map_result
 
-    first = map_result.to_a[0]
-    last = map_result.to_a[3]
+    Timeout.timeout(1) do
+      first = map_result.to_a[0]
+      last = map_result.to_a[3]
 
-    assert_instance_of String, first
-    assert_equal '1', first
-    assert_equal '4', last
+      assert_instance_of String, first
+      assert_equal '1', first
+      assert_equal '4', last
+    end
   end
 
   def test_shutdown_without_block
