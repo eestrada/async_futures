@@ -3,6 +3,7 @@
 require_relative 'executor'
 
 require 'etc'
+require 'monitor'
 require 'set' # rubocop:disable Lint/RedundantRequireStatement
 
 module AsyncFutures
@@ -19,11 +20,11 @@ module AsyncFutures
     # The parameter `thread_name_prefix` can be used
     # to optionally add a prefix to generated `Thread` names.
     def initialize(max_workers: nil, thread_name_prefix: '')
+      super()
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
       @thread_name_prefix = thread_name_prefix.to_s
       @tasks = Thread::Queue.new
       @pool = Set.new
-      @cond = new_cond
 
       at_exit { shutdown(wait: false) }
     end
@@ -34,9 +35,13 @@ module AsyncFutures
       raise ArgumentError.new('No block given') unless block
       raise 'ThreadExecutor instance is shutdown' if @tasks.closed?
 
+      synchronize do
+        @max_workers.times { spawn_worker } if @pool.empty?
+      end
+
       Future.new.tap do |future|
         @tasks.push([future, block, args, kwargs])
-        maybe_spawn_worker
+        # maybe_spawn_worker
       end
     end
 
