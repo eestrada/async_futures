@@ -24,6 +24,8 @@ module AsyncFutures
       @tasks = Thread::Queue.new
       @pool = Set.new
       @cond = new_cond
+
+      at_exit { shutdown(wait: false) }
     end
 
     # Asynchronously submit a task for execution.

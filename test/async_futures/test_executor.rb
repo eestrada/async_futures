@@ -66,11 +66,11 @@ class TestExecutor < Minitest::Test
     assert_equal '4', last
   end
 
-  def test_shutdown_with_block
+  def test_shutdown_without_block
     assert_nil @executor.shutdown
   end
 
-  def test_shutdown_without_block
+  def test_shutdown_with_block
     refute_nil(@executor.shutdown { true })
   end
 end

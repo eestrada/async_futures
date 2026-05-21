@@ -6,7 +6,11 @@ require 'async_futures/thread_executor'
 
 class TestThreadExecutor < Minitest::Test
   def setup
-    @executor = AsyncFutures::Executor
+    @executor = AsyncFutures::ThreadExecutor.new
+  end
+
+  def teardown
+    @executor.shutdown(wait: false)
   end
 
   def test_submit_raises_argument_error_without_block
@@ -21,9 +25,9 @@ class TestThreadExecutor < Minitest::Test
     assert_instance_of AsyncFutures::Future, future1
 
     # Executor mixin module should run immediately and return a completed future.
-    assert_predicate future1, :done?
+    # assert_predicate future1, :done?
 
-    result = future1.result
+    result = future1.result(1)
 
     assert_equal 2, result.size
     assert_instance_of Array, result
@@ -38,18 +42,16 @@ class TestThreadExecutor < Minitest::Test
 
     assert_instance_of AsyncFutures::Future, future1
 
-    # Executor mixin module should run immediately and return a completed future.
-    assert_predicate future1, :done?
+    # future1.exception
 
-    refute_nil future1.exception
+    # Executor mixin module should run immediately and return a completed future.
+    # assert_predicate future1, :done?
+
+    refute_nil future1.exception(1)
   end
 
-  def test_submit_concurrent_raises
-    assert_raises(AsyncFutures::NoConcurrencyError) do
-      @executor.submit_concurrent(1, 2, 3, 4, tell_me: 'that you love me more') do |*args, **kwargs|
-        raise "Some runtime error #{args} #{kwargs}"
-      end
-    end
+  def test_submit_concurrent_is_alias
+    assert_equal @executor.method(:submit), @executor.method(:submit_concurrent)
   end
 
   def test_map
@@ -66,11 +68,11 @@ class TestThreadExecutor < Minitest::Test
     assert_equal '4', last
   end
 
-  def test_shutdown_with_block
+  def test_shutdown_without_block
     assert_nil @executor.shutdown
   end
 
-  def test_shutdown_without_block
+  def test_shutdown_with_block
     refute_nil(@executor.shutdown { true })
   end
 end
