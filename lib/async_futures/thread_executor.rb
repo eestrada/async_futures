@@ -32,42 +32,38 @@ module AsyncFutures
     # For `ThreadExecutor` the tasks are always executed concurrently.
     def submit(*args, **kwargs, &block) # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
       raise ArgumentError.new('No block given') unless block
+      raise 'ThreadExecutor instance is shutdown' if @tasks.closed?
 
-      synchronize do
-        raise 'ThreadExecutor instance is shutdown' if @tasks.closed?
+      Future.new.tap do |future|
+        @tasks.push([future, block, args, kwargs])
 
-        Future.new.tap do |future|
-          @tasks.push([future, block, args, kwargs])
+        # synchronize when interacting directly with @pool
+        if synchronize { @pool.empty? } || (@tasks.size > 1 && synchronize { @pool.size } < @max_workers)
+          thread = Thread.new(
+            @thread_name_prefix,
+            @tasks,
+            @pool,
+            method(:synchronize)
+          ) do |thread_name_prefix, tasks, pool, sync_proc|
+            Thread.current.name = "#{thread_name_prefix}_#{Thread.current.name}" unless thread_name_prefix.empty?
 
-          # synchronize when interacting directly with @pool
-          if @pool.empty? || (@tasks.size > 1 && @pool.size < @max_workers)
-            @pool << Thread.new(
-              @thread_name_prefix,
-              @tasks,
-              @pool,
-              method(:synchronize)
-            ) do |thread_name_prefix, tasks, pool, sync_proc|
-              Thread.current.name = "#{thread_name_prefix}_#{Thread.current.name}" unless thread_name_prefix.empty?
+            while (task = tasks.pop)
+              tfuture, tblock, targs, tkwargs = task
 
-              while (task = tasks.pop)
-                tfuture, tblock, targs, tkwargs = task
+              next unless tfuture.set_running_or_notify_cancel
 
-                next unless tfuture.set_running_or_notify_cancel
-
-                begin
-                  result = tblock.call(*targs, **tkwargs)
-                rescue Exception => e # rubocop:disable Lint/RescueException
-                  tfuture.set_exception(e)
-                else
-                  tfuture.set_result(result)
-                end
-              end
-            ensure
-              sync_proc.call do
-                pool.delete Thread.current
+              begin
+                result = tblock.call(*targs, **tkwargs)
+              rescue Exception => e # rubocop:disable Lint/RescueException
+                tfuture.set_exception(e)
+              else
+                tfuture.set_result(result)
               end
             end
+          ensure
+            sync_proc.call { pool.delete Thread.current }
           end
+          synchronize { @pool.add thread }
         end
       end
     end
@@ -77,22 +73,19 @@ module AsyncFutures
     def shutdown(wait: true, cancel_futures: false, &block)
       block&.call(self)
     ensure
-      synchronize do
-        @tasks.close
+      @tasks.close
 
-        if cancel_futures
-          while (task = @tasks.pop)
-            future = task[0]
-            future.cancel
-          end
+      if cancel_futures
+        while (task = @tasks.pop)
+          future = task[0]
+          future.cancel
         end
+      end
 
-        if wait
-          @pool.dup.each do |thread|
-            @cond.wait_until { thread.join(0) }
-            @pool.delete thread
-            @cond.broadcast
-          end
+      if wait
+        synchronize { @pool.dup }.each do |thread|
+          thread.join
+          synchronize { @pool.delete thread }
         end
       end
     end
