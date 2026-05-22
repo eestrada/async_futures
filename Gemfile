@@ -19,6 +19,7 @@ group 'testing' do
 end
 
 group 'development' do
+  gem 'debug'
   gem 'irb'
   gem 'rbs'
   gem 'rdbg'

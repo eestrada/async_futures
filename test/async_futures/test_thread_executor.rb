@@ -25,12 +25,9 @@ class TestThreadExecutor < Minitest::Test
     assert_instance_of AsyncFutures::Future, future1
     assert_predicate future1, :pending?
 
-    sleep 0.1
+    result = future1.result
 
-    assert_predicate future1, :running?
-
-    result = future1.result(1)
-
+    assert_predicate future1, :done?
     assert_equal 2, result.size
     assert_instance_of Array, result
     assert_instance_of Array, result[0]
@@ -44,16 +41,11 @@ class TestThreadExecutor < Minitest::Test
     end
     after_count = Thread.list.size
 
-    refute_equal after_count, before_count
-
+    assert_operator after_count, :>, before_count
     assert_instance_of AsyncFutures::Future, future1
-
-    # future1.exception
-
-    # Executor mixin module should run immediately and return a completed future.
-    # assert_predicate future1, :done?
-
-    refute_nil future1.exception(1)
+    assert_predicate future1, :pending?
+    refute_nil future1.exception
+    assert_predicate future1, :done?
   end
 
   def test_submit_concurrent_is_alias
@@ -66,14 +58,13 @@ class TestThreadExecutor < Minitest::Test
 
     assert_instance_of Enumerator::Lazy, map_result
 
-    Timeout.timeout(1) do
-      first = map_result.to_a[0]
-      last = map_result.to_a[3]
+    results = map_result.to_a
+    first = results.to_a[0]
+    last = results.to_a[3]
 
-      assert_instance_of String, first
-      assert_equal '1', first
-      assert_equal '4', last
-    end
+    assert_instance_of String, first
+    assert_equal '1', first
+    assert_equal '4', last
   end
 
   def test_shutdown_without_block

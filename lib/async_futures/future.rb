@@ -160,9 +160,11 @@ module AsyncFutures
         case @state
         when CANCELLED
           @state = CANCELLED_AND_NOTIFIED
+          @condition.broadcast
           return false
         when PENDING
           @state = RUNNING
+          @condition.broadcast
           return true
         else
           logger&.unknown { "Future #{self} in unexpected state #{@state}" }
@@ -177,6 +179,7 @@ module AsyncFutures
 
         @result = result
         @state = FINISHED
+        @condition.broadcast
       end
       invoke_callbacks
     end
@@ -188,6 +191,7 @@ module AsyncFutures
 
         @exception = exception
         @state = FINISHED
+        @condition.broadcast
       end
       invoke_callbacks
     end

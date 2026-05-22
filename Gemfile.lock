@@ -162,6 +162,7 @@ PLATFORMS
 
 DEPENDENCIES
   async_futures!
+  debug
   irb
   logger
   minitest
