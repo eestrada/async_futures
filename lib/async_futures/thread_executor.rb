@@ -74,7 +74,7 @@ module AsyncFutures
 
     def spawn_worker # rubocop:disable Metrics/AbcSize
       thread = Thread.new do
-        Thread.current.name = "#{@thread_name_prefix}_#{Thread.current.name}" unless @thread_name_prefix.empty?
+        Thread.current.name = "#{@thread_name_prefix}_#{Thread.current.object_id}" unless @thread_name_prefix.empty?
 
         while (task = @tasks.pop)
           tfuture, tblock, targs, tkwargs = task
