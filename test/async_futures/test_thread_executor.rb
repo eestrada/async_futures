@@ -95,9 +95,9 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     new_executor = AsyncFutures::ThreadExecutor.new(max_workers: 1)
 
     before_count = Thread.list.size
-    future1 = new_executor.submit { sleep(0.01) }
-    future2 = new_executor.submit { sleep(0.01) }
-    future3 = new_executor.submit { sleep(0.01) }
+    future1 = new_executor.submit { sleep(0.02) }
+    future2 = new_executor.submit { sleep(0.02) }
+    future3 = new_executor.submit { sleep(0.02) }
     future1.result
     future2.result
     future3.result
@@ -112,10 +112,10 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def test_cancel_futures_in_shutdown
     new_executor = AsyncFutures::ThreadExecutor.new(max_workers: 1)
 
-    future1 = new_executor.submit { sleep(0.01) }
+    future1 = new_executor.submit { sleep(0.02) }
     future1.result
-    future2 = new_executor.submit { sleep(0.01) }
-    future3 = new_executor.submit { sleep(0.01) }
+    future2 = new_executor.submit { sleep(0.02) }
+    future3 = new_executor.submit { sleep(0.02) }
 
     new_executor.shutdown(cancel_futures: true)
 
@@ -143,9 +143,9 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
   def test_cancel_futures_manually
     AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |new_executor|
-      future1 = new_executor.submit { sleep(0.01) }
-      future2 = new_executor.submit { sleep(0.01) }
-      future3 = new_executor.submit { sleep(0.01) }
+      future1 = new_executor.submit { sleep(0.02) }
+      future2 = new_executor.submit { sleep(0.02) }
+      future3 = new_executor.submit { sleep(0.02) }
 
       assert_predicate future2, :pending?
       assert_predicate future3, :pending?
@@ -163,9 +163,9 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def test_reap_after # rubocop:disable Metrics/AbcSize
     AsyncFutures::ThreadExecutor.new(max_workers: 1, reap_after: 0.05).shutdown do |new_executor|
       count1 = Thread.list.size
-      future1 = new_executor.submit { sleep(0.01) }
-      future2 = new_executor.submit { sleep(0.01) }
-      future3 = new_executor.submit { sleep(0.01) }
+      future1 = new_executor.submit { sleep(0.02) }
+      future2 = new_executor.submit { sleep(0.02) }
+      future3 = new_executor.submit { sleep(0.02) }
       future1.result
       future2.result
       future3.result
@@ -182,9 +182,9 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def test_no_reap_after # rubocop:disable Metrics/AbcSize
     AsyncFutures::ThreadExecutor.new(max_workers: 1, reap_after: nil).shutdown do |new_executor|
       count1 = Thread.list.size
-      future1 = new_executor.submit { sleep(0.01) }
-      future2 = new_executor.submit { sleep(0.01) }
-      future3 = new_executor.submit { sleep(0.01) }
+      future1 = new_executor.submit { sleep(0.02) }
+      future2 = new_executor.submit { sleep(0.02) }
+      future3 = new_executor.submit { sleep(0.02) }
       future1.result
       future2.result
       future3.result
