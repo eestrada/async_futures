@@ -35,13 +35,9 @@ module AsyncFutures
       raise ArgumentError.new('No block given') unless block
       raise 'ThreadExecutor instance is shutdown' if @tasks.closed?
 
-      synchronize do
-        @max_workers.times { spawn_worker } if @pool.empty?
-      end
-
       Future.new.tap do |future|
         @tasks.push([future, block, args, kwargs])
-        # maybe_spawn_worker
+        maybe_spawn_worker
       end
     end
 
@@ -73,7 +69,7 @@ module AsyncFutures
 
     def maybe_spawn_worker
       # synchronize when interacting directly with @pool
-      spawn_worker unless synchronize { @pool.empty? } || (@tasks.size > 1 && synchronize { @pool.size } < @max_workers)
+      spawn_worker if synchronize { @pool.empty? } || (@tasks.size > 1 && synchronize { @pool.size } < @max_workers)
     end
 
     def spawn_worker # rubocop:disable Metrics/AbcSize
