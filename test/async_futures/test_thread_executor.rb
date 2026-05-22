@@ -74,4 +74,12 @@ class TestThreadExecutor < Minitest::Test
   def test_shutdown_with_block
     refute_nil(@executor.shutdown { true })
   end
+
+  def test_submit_after_shutdown
+    @executor.shutdown
+
+    exc = assert_raises(RuntimeError) { @executor.submit { 'hello' } }
+
+    assert_match(/ThreadExecutor instance is shutdown/, exc.message)
+  end
 end
