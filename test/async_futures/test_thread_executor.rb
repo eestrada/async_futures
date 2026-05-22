@@ -159,4 +159,43 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
       assert_predicate future3, :cancelled?
     end
   end
+
+  def test_reap_after # rubocop:disable Metrics/AbcSize
+    AsyncFutures::ThreadExecutor.new(max_workers: 1, reap_after: 0.05).shutdown do |new_executor|
+      count1 = Thread.list.size
+      future1 = new_executor.submit { sleep(0.01) }
+      future2 = new_executor.submit { sleep(0.01) }
+      future3 = new_executor.submit { sleep(0.01) }
+      future1.result
+      future2.result
+      future3.result
+      count2 = Thread.list.size
+      # sleep should cause worker thread to self-reap
+      sleep 0.1
+      count3 = Thread.list.size
+
+      assert_operator count2, :>, count1
+      assert_operator count2, :>, count3
+    end
+  end
+
+  def test_no_reap_after # rubocop:disable Metrics/AbcSize
+    AsyncFutures::ThreadExecutor.new(max_workers: 1, reap_after: nil).shutdown do |new_executor|
+      count1 = Thread.list.size
+      future1 = new_executor.submit { sleep(0.01) }
+      future2 = new_executor.submit { sleep(0.01) }
+      future3 = new_executor.submit { sleep(0.01) }
+      future1.result
+      future2.result
+      future3.result
+      count2 = Thread.list.size
+      # worker thread will never self-reap
+      sleep 0.1
+      count3 = Thread.list.size
+
+      assert_operator count2, :>, count1
+      refute_operator count2, :>, count3
+      assert_equal count2, count3
+    end
+  end
 end

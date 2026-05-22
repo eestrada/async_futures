@@ -13,16 +13,28 @@ module AsyncFutures
     include Executor
     include MonitorMixin
 
-    # Create a new `ThreadExecutor`
-    # that uses a pool of up to `max_workers`
-    # to execute calls concurrently.
+    # Create a new `ThreadExecutor`.
+    #
+    # Uses a pool of up to `max_workers`
+    # to execute tasks concurrently.
+    # If no value is given for `max_workers`
+    # it will default to `[32, Etc.nprocessors + 4].min`.
+    # Workers are spawned lazily as needed
+    # when tasks are added to the work queue.
     #
     # The parameter `thread_name_prefix` can be used
     # to optionally add a prefix to generated `Thread` names.
-    def initialize(max_workers: nil, thread_name_prefix: '')
+    #
+    # If the `reap_after` keyword argument is given,
+    # worker threads will be shut down
+    # if they haven't received any work after this amount of seconds.
+    # If it is `nil` or not given,
+    # they will not be reaped until the `ThreadExecutor` instance is `shutdown`.
+    def initialize(max_workers: nil, thread_name_prefix: '', reap_after: nil)
       super()
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
       @thread_name_prefix = thread_name_prefix.to_s
+      @reap_after = reap_after
       @tasks = Thread::Queue.new
       @pool = Set.new
 
@@ -30,7 +42,16 @@ module AsyncFutures
     end
 
     # Asynchronously submit a task for execution.
-    # For `ThreadExecutor` the tasks are always executed concurrently.
+    #
+    # For `ThreadExecutor` the tasks are never run immediately upon submission.
+    # They are placed into a work queue
+    # to be picked up later by worker threads.
+    #
+    # This does _not_ guarantee
+    # that any particular task will be run concurrently
+    # with other particular task;
+    # that is dependent on how many worker threads and tasks there are
+    # at any given point in time.
     def submit(*args, **kwargs, &block)
       raise ArgumentError.new('No block given') unless block
       raise 'ThreadExecutor instance is shutdown' if @tasks.closed?
@@ -76,7 +97,7 @@ module AsyncFutures
       thread = Thread.new do
         Thread.current.name = "#{@thread_name_prefix}_#{Thread.current.object_id}" unless @thread_name_prefix.empty?
 
-        while (task = @tasks.pop)
+        while (task = @tasks.pop(timeout: @reap_after))
           tfuture, tblock, targs, tkwargs = task
 
           next unless tfuture.set_running_or_notify_cancel

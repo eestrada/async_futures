@@ -62,25 +62,17 @@ module AsyncFutures
       raise NoConcurrencyError
     end
 
-    # Similar to enumerator.map(&block) except:
+    # Similar to `enumerator.map(&block)` except:
+    # `block` is executed asynchronously
+    # and several calls to block may be made concurrently.
     #
-    # block is executed asynchronously and several calls to block may be made
-    # concurrently.
+    # An `Enumerator::Lazy` instance will be returned.
+    # `Future` instances are joined
+    # as the `Enumerator::Lazy` is enumerated over.
     #
-    # The returned iterator raises a TimeoutError if __next__() is called and
-    # the result isn’t available after timeout seconds from the original call to
-    # Executor.map(). timeout can be an int or a float. If timeout is not
-    # specified or None, there is no limit to the wait time.
-    #
-    # If a block call raises an exception, then that exception will be raised when
-    # its value is retrieved from the iterator.
-    #
-    # When using ProcessPoolExecutor, this method chops enumerator into a number
-    # of chunks which it submits to the pool as separate tasks. The
-    # (approximate) size of these chunks can be specified by setting chunksize
-    # to a positive integer. For very long enumerator, using a large value for
-    # chunksize can significantly improve performance compared to the default
-    # size of 1. With ThreadPoolExecutor, chunksize has no effect.
+    # If a `block` call raises an exception,
+    # then that exception will be raised
+    # when its value is retrieved from the `Enumerator::Lazy` instance.
     def map(enumerator, timeout_sec: nil, &block) # rubocop:disable Lint/UnusedMethodArgument
       # Use `to_a` in case the enumerator is lazy (we *want* to be eager in this
       # circumstance).
