@@ -23,7 +23,6 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     end
 
     assert_instance_of AsyncFutures::Future, future1
-    assert_predicate future1, :pending?
 
     result = future1.result
 
@@ -43,7 +42,6 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
     assert_operator after_count, :>, before_count
     assert_instance_of AsyncFutures::Future, future1
-    assert_predicate future1, :pending?
     refute_nil future1.exception
     assert_predicate future1, :done?
   end
@@ -148,6 +146,9 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
       future1 = new_executor.submit { sleep(0.01) }
       future2 = new_executor.submit { sleep(0.01) }
       future3 = new_executor.submit { sleep(0.01) }
+
+      assert_predicate future2, :pending?
+      assert_predicate future3, :pending?
 
       future2.cancel
       future3.cancel
