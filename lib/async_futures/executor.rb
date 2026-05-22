@@ -29,21 +29,20 @@ module AsyncFutures
     #
     # Under some circumstances may run immediately and synchronously
     # and return an already completed `Future` object.
-    def submit(*args, **kwargs, &block) # rubocop:disable Style/ArgumentsForwarding
+    def submit(*args, **kwargs, &block)
       raise ArgumentError.new('No block given') unless block
 
-      future = Future.new
-      future.set_running_or_notify_cancel
+      Future.new.tap do |future|
+        future.set_running_or_notify_cancel
 
-      begin
-        result = block.call(*args, **kwargs) # rubocop:disable Style/ArgumentsForwarding
-      rescue Exception => e # rubocop:disable Lint/RescueException
-        future.set_exception(e)
-      else
-        future.set_result(result)
+        begin
+          result = block.call(*args, **kwargs)
+        rescue Exception => e # rubocop:disable Lint/RescueException
+          future.set_exception(e)
+        else
+          future.set_result(result)
+        end
       end
-
-      future
     end
 
     # Schedules the block, to be executed as `block.call(*args, **kwargs)` and
