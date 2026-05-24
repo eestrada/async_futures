@@ -132,7 +132,7 @@ module AsyncFutures
           # If *any* future raises an exception,
           # we need to be sure to cancel the remaining ones.
           # It's ok if we call cancel on already completed ones.
-          futures[index..].each(&:cancel)
+          (index...futures.size).each { |i| futures[i].cancel }
         end
       end
     end
