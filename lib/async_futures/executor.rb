@@ -3,6 +3,8 @@
 require_relative 'error'
 require_relative 'future'
 
+require 'timeout'
+
 module AsyncFutures
   # `Executor` mixin module.
   # Has a simple implementation
@@ -61,7 +63,7 @@ module AsyncFutures
       raise NoConcurrencyError
     end
 
-    # Similar to `enumerator.map(&block)` except:
+    # Similar to `enumerable.map(&block)` except:
     # `block` is executed asynchronously
     # and several calls to block may be made concurrently.
     #
@@ -69,13 +71,37 @@ module AsyncFutures
     # `Future` instances are joined
     # as the `Enumerator::Lazy` is enumerated over.
     #
+    # If `timeout_sec` is given and not `nil`,
+    # then execution will raise `Timeout::Error`
+    # if more than `timeout_sec` seconds elapses.
+    # The elapsed time includes only the enumeration of `Future` results,
+    # *not* the submission of tasks.
+    # Keep this in mind when using any `Executor` implementation
+    # that carries the risk of immediately running submissions
+    # to completion (such as the base `Executor` or the `FiberExecutor`).
+    #
     # If a `block` call raises an exception,
     # then that exception will be raised
-    # when its value is retrieved from the `Enumerator::Lazy` instance.
-    def map(enumerator, timeout_sec: nil, &block) # rubocop:disable Lint/UnusedMethodArgument
+    # when its value is retrieved when enumerating
+    # over the `Enumerator::Lazy` instance.
+    # Any remaining `Future` instances will attempt to be cancelled
+    # in the case of a raised exception.
+    # However, because of possible concurrent execution
+    # there is no guarantee that they will be cancelled
+    # before being picked up, run, and completed.
+    #
+    # Do ***not*** call this method with an infinite `Enumerable`:
+    # the first thing this method does is force it to an `Array`.
+    # An infinite `Enumerable` forced to an `Array`
+    # will eat up all memory and never return.
+    def map(enumerable, timeout_sec: nil, &block) # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
+      timeout_sec = nil if !timeout_sec.nil? && timeout_sec.zero?
+
+      clock_timeout = Time.now.to_f + timeout_sec unless timeout_sec.nil?
+
       # Use `to_a` in case the enumerator is lazy (we *want* to be eager in this
       # circumstance).
-      futures = enumerator.map { |args| submit(args, &block) }.to_a
+      futures = enumerable.map { |args| submit(args, &block) }.to_a
 
       # FIXME: Need to implement this as an internal enumerator or something so
       # that cleanup can be assured and we can support timeouts. For example,
@@ -85,9 +111,23 @@ module AsyncFutures
       # See: https://github.com/python/cpython/blob/59b260c61b5abb75edcb2b0ab901274a58dfc856/Lib/concurrent/futures/_base.py#L612-L625
       # See: https://docs.ruby-lang.org/en/3.3/Enumerable.html#method-i-zip
       futures.lazy.map do |f|
-        f.result
-      ensure
-        f.cancel
+        if timeout_sec
+          local_timeout = clock_timeout - Time.now.to_f
+          raise Timeout::Error unless local_timeout.positive?
+
+          Timeout.timeout(local_timeout) { f.result }
+        else
+          f.result
+        end
+      rescue Exception => e # rubocop:disable Lint/RescueException
+        begin
+          raise e
+        ensure
+          # If *any* future raises an exception,
+          # we need to be sure to cancel the remaining ones.
+          # It's ok if we call cancel on already completed ones.
+          futures.each(&:cancel)
+        end
       end
     end
 
