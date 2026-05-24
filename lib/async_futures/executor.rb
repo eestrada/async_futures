@@ -71,15 +71,6 @@ module AsyncFutures
     # `Future` instances are joined
     # as the `Enumerator::Lazy` is enumerated over.
     #
-    # If `timeout_sec` is given and not `nil`,
-    # then execution will raise `Timeout::Error`
-    # if more than `timeout_sec` seconds elapses.
-    # The elapsed time includes only the enumeration of `Future` results,
-    # *not* the submission of tasks.
-    # Keep this in mind when using any `Executor` implementation
-    # that carries the risk of immediately running submissions
-    # to completion (such as the base `Executor` or the `FiberExecutor`).
-    #
     # If a `block` call raises an exception,
     # then that exception will be raised
     # when its value is retrieved when enumerating
@@ -90,6 +81,20 @@ module AsyncFutures
     # there is no guarantee that they will be cancelled
     # before being picked up, run, and completed.
     #
+    # If `timeout_sec` is given and not `nil`,
+    # then execution will raise `Timeout::Error`
+    # if more than `timeout_sec` seconds elapses.
+    # The elapsed time includes both the initial submission of tasks
+    # *and* the enumeration of `Future` results that follows it.
+    #
+    # However, no timeout error is raised until the first result is enumerated.
+    # Thus all tasks will be submitted,
+    # even if submission takes longer
+    # than the amount of time specified by `timeout_sec`.
+    # Keep this in mind when using any `Executor` implementation
+    # that carries the risk of immediately running submissions
+    # to completion (such as the base `Executor` or the `FiberExecutor`).
+    #
     # Do ***not*** call this method with an infinite `Enumerable`:
     # the first thing this method does is force it to an `Array`.
     # An infinite `Enumerable` forced to an `Array`
@@ -99,8 +104,8 @@ module AsyncFutures
 
       clock_timeout = Time.now.to_f + timeout_sec unless timeout_sec.nil?
 
-      # Use `to_a` in case the enumerator is lazy (we *want* to be eager in this
-      # circumstance).
+      # Use `to_a` in case this is a lazy enumerator
+      # (we *want* to be eager in this circumstance).
       futures = enumerable.map { |args| submit(args, &block) }.to_a
 
       # FIXME: Need to implement this as an internal enumerator or something so
@@ -110,14 +115,15 @@ module AsyncFutures
       # See: https://docs.ruby-lang.org/en/3.3/Enumerator.html#class-Enumerator-label-Convert+External+Iteration+to+Internal+Iteration
       # See: https://github.com/python/cpython/blob/59b260c61b5abb75edcb2b0ab901274a58dfc856/Lib/concurrent/futures/_base.py#L612-L625
       # See: https://docs.ruby-lang.org/en/3.3/Enumerable.html#method-i-zip
-      futures.lazy.map do |f|
+      futures.each_with_index.lazy.map do |future, index|
+        # if timeout_sec && !future.done?
         if timeout_sec
           local_timeout = clock_timeout - Time.now.to_f
           raise Timeout::Error unless local_timeout.positive?
 
-          Timeout.timeout(local_timeout) { f.result }
+          Timeout.timeout(local_timeout) { future.result }
         else
-          f.result
+          future.result
         end
       rescue Exception => e # rubocop:disable Lint/RescueException
         begin
@@ -126,7 +132,7 @@ module AsyncFutures
           # If *any* future raises an exception,
           # we need to be sure to cancel the remaining ones.
           # It's ok if we call cancel on already completed ones.
-          futures.each(&:cancel)
+          futures[index..].each(&:cancel)
         end
       end
     end
