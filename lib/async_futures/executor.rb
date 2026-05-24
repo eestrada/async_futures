@@ -67,6 +67,16 @@ module AsyncFutures
     # `block` is executed asynchronously
     # and several calls to block may be made concurrently.
     #
+    # Just like `enumerable.map`,
+    # args are splatted for the block if there are multiple args.
+    # Thus you can do things like this:
+    #
+    # ```ruby
+    # ThreadExecutor.new.map(enum.each_with_index) do |e, i|
+    #     puts "element #{e} is at index #{i}"
+    # end
+    # ```
+    #
     # An `Enumerator::Lazy` instance will be returned.
     # `Future` instances are joined
     # as the `Enumerator::Lazy` is enumerated over.
@@ -106,7 +116,7 @@ module AsyncFutures
 
       # Use `to_a` in case this is a lazy enumerator
       # (we *want* to be eager in this circumstance).
-      futures = enumerable.map { |args| submit(args, &block) }.to_a
+      futures = enumerable.map { |*args| submit(*args, &block) }.to_a
 
       futures.each_with_index.lazy.map do |future, index|
         # if timeout_sec && !future.done?
@@ -158,12 +168,14 @@ module AsyncFutures
     # after the block completes.
     # The block will be passed one parameter: the executor instance.
     #
-    #     ThreadExecutor.new(max_workers: 4).shutdown do |executor|
-    #         executor.submit('src1.txt', 'dest1.txt', &FileUtils.method(:cp))
-    #         executor.submit('src2.txt', 'dest2.txt', &FileUtils.method(:cp))
-    #         executor.submit('src3.txt', 'dest3.txt', &FileUtils.method(:cp))
-    #         executor.submit('src4.txt', 'dest4.txt', &FileUtils.method(:cp))
-    #     end
+    # ```ruby
+    # ThreadExecutor.new(max_workers: 4).shutdown do |executor|
+    #     executor.submit('src1.txt', 'dest1.txt', &FileUtils.method(:cp))
+    #     executor.submit('src2.txt', 'dest2.txt', &FileUtils.method(:cp))
+    #     executor.submit('src3.txt', 'dest3.txt', &FileUtils.method(:cp))
+    #     executor.submit('src4.txt', 'dest4.txt', &FileUtils.method(:cp))
+    # end
+    # ```
     #
     # `shutdown` can be called multiple times.
     # The block given will always be run,

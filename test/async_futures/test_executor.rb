@@ -88,20 +88,25 @@ class TestExecutor < Minitest::Test
 
   def test_map_timeout_long
     enum = [0.05, 0.05]
-    map_result = @executor.map(enum, 0.15) { |s| sleep(s) }
+    map_result = @executor.map(enum.each_with_index, 0.15) do |s, i|
+      sleep(s)
+      i
+    end
 
     assert_instance_of Enumerator::Lazy, map_result
 
     ary_result = map_result.to_a
 
     assert_instance_of Array, ary_result
+
+    assert_equal [0, 1], ary_result
   end
 
   def test_map_timeout_zero
     enum = [0.05, 0.05]
-    map_result = @executor.map(enum, 0.0) do |s|
+    map_result = @executor.map(enum.each_with_index, 0.0) do |s, i|
       sleep(s)
-      s.floor(-1)
+      (i + 1) * 100
     end
 
     assert_instance_of Enumerator::Lazy, map_result
@@ -111,7 +116,7 @@ class TestExecutor < Minitest::Test
 
     assert_instance_of Array, ary
 
-    assert_equal [0, 0], ary
+    assert_equal [100, 200], ary
   end
 
   def test_shutdown_without_block
