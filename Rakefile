@@ -18,6 +18,8 @@ Minitest::TestTask.create(:coverage) do |t|
   t.verbose = true
 end
 
+CLEAN << 'coverage'
+
 RuboCop::RakeTask.new
 
 namespace :rbs do

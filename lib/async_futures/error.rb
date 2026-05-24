@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'timeout'
-
 module AsyncFutures
   # Base error class.
   class Error < StandardError; end

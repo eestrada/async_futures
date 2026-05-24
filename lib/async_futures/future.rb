@@ -8,6 +8,8 @@ require 'monitor'
 
 module AsyncFutures
   # Class for async execution results.
+  #
+  # Heavily inspired by Python's `concurrent.futures.Future` class.
   class Future # rubocop:disable Metrics/ClassLength
     include MonitorMixin
     include Timeout
@@ -20,10 +22,6 @@ module AsyncFutures
       @exception = nil
       @waiters = []
       @done_callbacks = []
-    end
-
-    def logger
-      AsyncFutures.logger
     end
 
     # Attempt to cancel the call. If the call is currently being executed or
@@ -46,7 +44,7 @@ module AsyncFutures
 
     # Return `True` if the call has not yet started.
     #
-    # Not present on Python concurrent.futures.Future class.
+    # Not present on Python `concurrent.futures.Future` class.
     def pending?
       synchronize do
         @state.equal? PENDING
@@ -55,7 +53,7 @@ module AsyncFutures
 
     # Return `True` if the call finished running and was not cancelled.
     #
-    # Not present on Python concurrent.futures.Future class.
+    # Not present on Python `concurrent.futures.Future` class.
     def finished?
       synchronize do
         @state.equal? FINISHED
@@ -128,15 +126,44 @@ module AsyncFutures
       end
     end
 
+    # Wait for future to be `done?`
+    # (through regular completion, exception, or cancellation),
+    # then return `self`.
+    # If the call hasn’t yet completed
+    # then this method will wait up to `timeout_sec` seconds.
+    # If the call hasn’t completed in `timeout_sec` seconds,
+    # then `nil` will be returned.
+    # `timeout_sec` can be an int or float.
+    # If `timeout_sec` is not specified or `nil`,
+    # there is no limit to the wait time.
+    #
+    # Calling `join` with a `timeout_sec` value of zero
+    # will return immediately.
+    # This is effectively equivalent to calling `done?`.
+    #
+    # Not present on Python's `concurrent.futures.Future` class.
+    def join(timeout_sec = nil)
+      return (done? && self) || nil if timeout_sec&.zero?
+
+      timeout(timeout_sec) do
+        synchronize do
+          @condition.wait_until(&method(:done?))
+          self
+        end
+      end
+    rescue Timeout::Error
+      nil
+    end
+
     # Attaches a block that will be called when the future finishes.
     #
-    # Args:
-    #     block: A block that will be called with this future as its only
-    #         argument when the future completes or is cancelled. The block
-    #         will always be called by a thread in the same process in which
-    #         it was added. If the future has already completed or been
-    #         cancelled then the block will be called immediately. These
-    #         callables are called in the order that they were added.
+    # The block will be called with this future as its only argument
+    # when the future completes or is cancelled.
+    # The block will always be called by a Thread in the same Ractor
+    # in which it was added.
+    # If the future has already completed
+    # or been cancelled then the block will be called immediately.
+    # These blocks are called in the order that they were added.
     def add_done_callback(&block)
       raise ArgumentError.new('No block given') unless block
 
@@ -230,6 +257,10 @@ module AsyncFutures
       rescue Exception # rubocop:disable Lint/RescueException
         logger&.error { "Exception calling callback for #{self}" }
       end
+    end
+
+    def logger
+      AsyncFutures.logger
     end
   end
 end
