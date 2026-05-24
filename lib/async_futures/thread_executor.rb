@@ -9,6 +9,18 @@ require 'set' # rubocop:disable Lint/RedundantRequireStatement
 module AsyncFutures
   # `Executor` implementation based on `Thread` primitives
   # that uses a pool of up to `max_workers` to execute calls concurrently.
+  #
+  # `ThreadExecutor` specific submission considerations:
+  #
+  # For `ThreadExecutor` the tasks are never run immediately upon submission.
+  # They are placed into a work queue
+  # to be picked up later by worker threads.
+  #
+  # This does _not_ guarantee
+  # that any particular task will be run concurrently
+  # with any other particular task;
+  # that is dependent on how many worker threads and tasks there are
+  # at any given point in time.
   class ThreadExecutor
     include Executor
     include MonitorMixin
@@ -43,15 +55,7 @@ module AsyncFutures
 
     # Asynchronously submit a task for execution.
     #
-    # For `ThreadExecutor` the tasks are never run immediately upon submission.
-    # They are placed into a work queue
-    # to be picked up later by worker threads.
-    #
-    # This does _not_ guarantee
-    # that any particular task will be run concurrently
-    # with any other particular task;
-    # that is dependent on how many worker threads and tasks there are
-    # at any given point in time.
+    # See `AsyncFutures::Executor.submit` method for full documentation.
     def submit(*args, **kwargs, &block)
       raise ArgumentError.new('No block given') unless block
       raise 'ThreadExecutor instance is shutdown' if @tasks.closed?
@@ -66,16 +70,13 @@ module AsyncFutures
 
     public :map
 
-    # Shutdown executor.
+    # Shutdown `ThreadExecutor` instance.
     #
-    # Can be called multiple times.
-    # The block given will always be run,
-    # but the actual procedure to shutdown afterward will only be called once,
-    # on the first time.
+    # See `AsyncFutures::Executor.shutdown` for full documentation.
     def shutdown(wait: true, cancel_futures: false, &block)
       block&.call(self)
     ensure
-      unless check_set_shutdown
+      unless check_and_set_shutdown!
         if cancel_futures
           while (task = @tasks.pop)
             future = task[0]
@@ -95,9 +96,9 @@ module AsyncFutures
     private
 
     # Returns the current shutdown state,
-    # then always sets shutdown to `true` no matter what its current value is.
-    # This is all done atomically.
-    def check_set_shutdown
+    # then sets internal shutdown state to `true`.
+    # This is all done atomically to avoid race conditions.
+    def check_and_set_shutdown!
       synchronize do
         return true if @tasks.closed?
 
@@ -109,7 +110,7 @@ module AsyncFutures
     # Only spawn a worker if one is needed.
     def maybe_spawn_worker
       # synchronize when interacting directly with @pool
-      spawn_worker if (!@tasks.empty? && synchronize { @pool.size } < @max_workers)
+      spawn_worker if !@tasks.empty? && synchronize { @pool.size } < @max_workers
     end
 
     # Always spawn a worker

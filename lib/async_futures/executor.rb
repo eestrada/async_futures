@@ -51,7 +51,7 @@ module AsyncFutures
     # Executor must support concurrency otherwise this method will raise the
     # exception `NoConcurrencyError`.
     #
-    # This method must *never* run the block to completion before returning.
+    # This method should *never* run the block to completion before returning.
     # This could cause a serious deadlock condition that cannot be overcome.
     # If an implementation cannot schedule this to run concurrently
     # it is better for it to raise an exception such as `NoConcurrencyError`.
@@ -101,7 +101,7 @@ module AsyncFutures
     # have been freed. If `wait` is `False` then this method will return immediately
     # and the resources associated with the executor will be freed when all
     # pending futures are done executing. Regardless of the value of `wait`, the
-    # entire Python program will not exit until all pending futures are done
+    # entire Ruby program will not exit until all pending futures are done
     # executing.
     #
     # If `cancel_futures` is `true`, this method will cancel all pending futures
@@ -119,25 +119,43 @@ module AsyncFutures
     # after the block completes.
     # The block will be passed one parameter: the executor instance.
     #
-    #     ThreadExecutor.new(max_workers: 4).shutdown do |e|
-    #         e.submit('src1.txt', 'dest1.txt', &FileUtils.method(:cp))
-    #         e.submit('src2.txt', 'dest2.txt', &FileUtils.method(:cp))
-    #         e.submit('src3.txt', 'dest3.txt', &FileUtils.method(:cp))
-    #         e.submit('src4.txt', 'dest4.txt', &FileUtils.method(:cp))
+    #     ThreadExecutor.new(max_workers: 4).shutdown do |executor|
+    #         executor.submit('src1.txt', 'dest1.txt', &FileUtils.method(:cp))
+    #         executor.submit('src2.txt', 'dest2.txt', &FileUtils.method(:cp))
+    #         executor.submit('src3.txt', 'dest3.txt', &FileUtils.method(:cp))
+    #         executor.submit('src4.txt', 'dest4.txt', &FileUtils.method(:cp))
     #     end
+    #
+    # `shutdown` can be called multiple times.
+    # The block given will always be run,
+    # but the actual procedure to shutdown afterward will only be called once,
+    # on the first time.
+    #
+    # It is the caller's responsibility
+    # to ensure that the passed block can deal with a shutdown executor
+    # if there is any possibility
+    # of `shutdown` being called more than once with a block.
+    # Unless the caller is doing something very out of the ordinary,
+    # this is unlikely to be an issue.
+    #
+    # This method returns the return value of the block,
+    # or `nil` if no block is given.
     def shutdown(wait: true, cancel_futures: false, &block) # rubocop:disable Lint/UnusedMethodArgument
       block&.call(self)
     ensure # rubocop:disable Lint/EmptyEnsure
-      # Cleanup logic goes here
+      # Cleanup logic goes here.
       #
-      # The mixin has no state, so it has nothing to cleanup.
+      # The mixin has no state,
+      # so it has nothing to cleanup.
       #
       # Also, this is the only implementation that will *not* raise
-      # `RuntimeError` when new tasks are submitted after shutdown, precisely
-      # because it has no state to even keep track of whether shutdown has
-      # previously been called or not.
+      # an exception when new tasks are submitted after shutdown,
+      # precisely because it has no state
+      # to even keep track of whether shutdown has previously been called or not.
     end
 
     module_function :submit, :submit_concurrent, :map, :shutdown
+
+    public :submit, :submit_concurrent, :map, :shutdown
   end
 end

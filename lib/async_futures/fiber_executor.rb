@@ -7,8 +7,7 @@ require 'set' # rubocop:disable Lint/RedundantRequireStatement
 
 module AsyncFutures
   # `Executor` implementation based on `Fiber` primitives.
-  # Requires that a `Fiber::Scheduler` be set for `Fiber.scheduler`
-  # in order to work.
+  # Requires that `Fiber.scheduler` be set in order to work.
   #
   # Several benefits of using `FiberExecutor` over using `Fiber.schedule` directly:
   #
@@ -18,12 +17,33 @@ module AsyncFutures
   #   like `Thread` and `Ractor` do
   #   (both support calling `value` to get the final result).
   #   `Future` makes this trivial to do for a scheduled `Fiber`.
-  # - `Fiber` instances cannot currently be shared across `Thread` instances,
-  #   though this may change someday.
+  # - `Fiber` instances cannot currently be shared across `Thread` instances
+  #   (though this may change someday).
   #   However, `Future` instances can safely be shared
   #   across both `Threads` and `Fibers`
   #   (Ractors can share neither `Fiber` nor `Future`
-  #   and that is unlikely to ever change).
+  #   and that is unlikely to ever change due to their design).
+  #
+  # `FiberExecutor` specific details for submission:
+  #
+  # For `FiberExecutor` the tasks are run immediately upon submission
+  # using the `Fiber.schedule` method.
+  # This method will return
+  # as soon as the Fiber hits a blocking operation
+  # or runs the `Fiber` to completion.
+  # Thus it is completely possible
+  # that the returned `Future` is already completed
+  # by the time it is returned to the caller.
+  #
+  # The `FiberExecutor` implementation does _not_ guarantee
+  # that any particular task will be run concurrently
+  # with any other particular task;
+  # that is dependent
+  # on whether the submitted procs/blocks
+  # have blocking operations that yield control
+  # back to the `Fiber::Scheduler`
+  # and whether the `Fiber::Scheduler` properly implements
+  # `Fiber` switching for those operations.
   class FiberExecutor
     include Executor
     include MonitorMixin
@@ -59,25 +79,7 @@ module AsyncFutures
 
     # Asynchronously submit a task for execution.
     #
-    # For `FiberExecutor` the tasks are run immediately upon submission
-    # using the `Fiber.schedule` method.
-    # This method will return
-    # as soon as the Fiber hits a blocking operation
-    # (and thus yields control back to the scheduling Fiber)
-    # or runs the `Fiber` to completion.
-    # Thus it is completely possible
-    # that the returned `Future` is already completed
-    # by the time it is returned to the caller.
-    #
-    # The `FiberExecutor` implementation does _not_ guarantee
-    # that any particular task will be run concurrently
-    # with any other particular task;
-    # that is dependent
-    # on whether the submitted procs/blocks
-    # have blocking operations that yield control
-    # back to the `Fiber::Scheduler`
-    # and whether the `Fiber::Scheduler` properly implements
-    # `Fiber` switching for those operations.
+    # See `AsyncFutures::Executor.submit` method for full documentation.
     def submit(*args, **kwargs, &block)
       raise ArgumentError.new('No block given') unless block
       raise 'FiberExecutor instance is shutdown' if synchronize { @is_shutdown }
@@ -112,25 +114,22 @@ module AsyncFutures
     # to the `FiberExecutor` constructor.
     #
     # Otherwise,
-    # forwards to `submit` method.
+    # forwards to `AsyncFutures::FiberExecutor.submit` method.
+    #
+    # See `AsyncFutures::FiberExecutor.submit` method for full documentation.
     def submit_concurrent(...)
       raise NoConcurrencyError unless @treat_as_concurrent
 
       submit(...)
     end
 
-    public :map
-
-    # Shutdown executor.
+    # Shutdown `FiberExecutor` instance.
     #
-    # Can be called multiple times.
-    # The block given will always be run,
-    # but the actual procedure to shutdown afterward will only be called once,
-    # on the first time.
+    # See `AsyncFutures::Executor.shutdown` for full documentation.
     def shutdown(wait: true, cancel_futures: false, &block) # rubocop:disable Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
       block&.call(self)
     ensure
-      unless check_set_shutdown
+      unless check_and_set_shutdown!
         futures_dup = synchronize { @futures.dup } if wait || cancel_futures
         futures_dup.reject!(&:cancel) if cancel_futures
         futures_dup.reject!(&:join) if wait
@@ -141,9 +140,9 @@ module AsyncFutures
     private
 
     # Returns the current shutdown state,
-    # then always sets shutdown to `true` no matter what its current value is.
-    # This is all done atomically.
-    def check_set_shutdown
+    # then sets internal shutdown state to `true`.
+    # This is all done atomically to avoid race conditions.
+    def check_and_set_shutdown!
       synchronize do
         return true if @is_shutdown
 
