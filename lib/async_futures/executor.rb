@@ -99,7 +99,7 @@ module AsyncFutures
     # the first thing this method does is force it to an `Array`.
     # An infinite `Enumerable` forced to an `Array`
     # will eat up all memory and never return.
-    def map(enumerable, timeout_sec: nil, &block) # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
+    def map(enumerable, timeout_sec = nil, &block) # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
       timeout_sec = nil if !timeout_sec.nil? && timeout_sec.zero?
 
       clock_timeout = Time.now.to_f + timeout_sec unless timeout_sec.nil?
@@ -108,13 +108,6 @@ module AsyncFutures
       # (we *want* to be eager in this circumstance).
       futures = enumerable.map { |args| submit(args, &block) }.to_a
 
-      # FIXME: Need to implement this as an internal enumerator or something so
-      # that cleanup can be assured and we can support timeouts. For example,
-      # there needs to be an ensure section to attempt to cancel all futures.
-      #
-      # See: https://docs.ruby-lang.org/en/3.3/Enumerator.html#class-Enumerator-label-Convert+External+Iteration+to+Internal+Iteration
-      # See: https://github.com/python/cpython/blob/59b260c61b5abb75edcb2b0ab901274a58dfc856/Lib/concurrent/futures/_base.py#L612-L625
-      # See: https://docs.ruby-lang.org/en/3.3/Enumerable.html#method-i-zip
       futures.each_with_index.lazy.map do |future, index|
         # if timeout_sec && !future.done?
         if timeout_sec
