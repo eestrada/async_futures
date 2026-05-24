@@ -109,7 +109,7 @@ module AsyncFutures
     # Only spawn a worker if one is needed.
     def maybe_spawn_worker
       # synchronize when interacting directly with @pool
-      spawn_worker if synchronize { @pool.empty? } || (@tasks.size > 1 && synchronize { @pool.size } < @max_workers)
+      spawn_worker if (!@tasks.empty? && synchronize { @pool.size } < @max_workers)
     end
 
     # Always spawn a worker
