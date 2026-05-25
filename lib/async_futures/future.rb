@@ -4,19 +4,18 @@ require_relative 'logger'
 require_relative 'error'
 
 require 'timeout'
-require 'monitor'
 
 module AsyncFutures
   # Class for async execution results.
   #
   # Heavily inspired by Python's `concurrent.futures.Future` class.
   class Future # rubocop:disable Metrics/ClassLength
-    include MonitorMixin
     include Timeout
 
     def initialize
       super
-      @condition = new_cond
+      @mutex = Thread::Mutex.new
+      @condition = Thread::ConditionVariable.new
       @state = PENDING
       @result = nil
       @exception = nil
@@ -29,9 +28,9 @@ module AsyncFutures
     # `False`, otherwise the call will be cancelled and the method will return
     # `True`.
     def cancel # rubocop:disable Naming/PredicateMethod
-      synchronize do
-        return true if cancelled?
-        return false if running? || finished?
+      @mutex.synchronize do
+        return true if lockless_cancelled?
+        return false if lockless_running? || lockless_finished?
 
         # The only other state left is PENDING, so we can safely cancel.
         @state = CANCELLED
@@ -46,39 +45,29 @@ module AsyncFutures
     #
     # Not present on Python `concurrent.futures.Future` class.
     def pending?
-      synchronize do
-        @state.equal? PENDING
-      end
+      @mutex.synchronize { lockless_pending? }
     end
 
     # Return `True` if the call finished running and was not cancelled.
     #
     # Not present on Python `concurrent.futures.Future` class.
     def finished?
-      synchronize do
-        @state.equal? FINISHED
-      end
+      @mutex.synchronize { lockless_finished? }
     end
 
     # Return `True` if the call was successfully cancelled.
     def cancelled?
-      synchronize do
-        [CANCELLED, CANCELLED_AND_NOTIFIED].include? @state
-      end
+      @mutex.synchronize { lockless_cancelled? }
     end
 
     # Return `True` if the call is currently being executed and cannot be cancelled.
     def running?
-      synchronize do
-        @state.equal? RUNNING
-      end
+      @mutex.synchronize { lockless_running? }
     end
 
     # Return `True` if the call was successfully cancelled or finished running.
     def done?
-      synchronize do
-        [CANCELLED, CANCELLED_AND_NOTIFIED, FINISHED].include? @state
-      end
+      @mutex.synchronize { lockless_done? }
     end
 
     # Return the value returned by the call. If the call hasn’t yet completed
@@ -94,9 +83,9 @@ module AsyncFutures
     # exception.
     def result(timeout_sec = nil)
       timeout(timeout_sec) do
-        synchronize do
-          @condition.wait_until(&method(:done?))
-          raise CancelledError if cancelled?
+        @mutex.synchronize do
+          @condition.wait(@mutex) until lockless_done?
+          raise CancelledError if lockless_cancelled?
 
           raise @exception if @exception
 
@@ -117,9 +106,9 @@ module AsyncFutures
     # If the call completed without raising, `nil` is returned.
     def exception(timeout_sec = nil)
       timeout(timeout_sec) do
-        synchronize do
-          @condition.wait_until(&method(:done?))
-          raise CancelledError if cancelled?
+        @mutex.synchronize do
+          @condition.wait(@mutex) until lockless_done?
+          raise CancelledError if lockless_cancelled?
 
           @exception
         end
@@ -146,8 +135,8 @@ module AsyncFutures
       return (done? && self) || nil if timeout_sec&.zero?
 
       timeout(timeout_sec) do
-        synchronize do
-          @condition.wait_until(&method(:done?))
+        @mutex.synchronize do
+          @condition.wait(@mutex) until lockless_done?
           self
         end
       end
@@ -167,8 +156,8 @@ module AsyncFutures
     def add_done_callback(&block)
       raise ArgumentError.new('No block given') unless block
 
-      synchronize do
-        unless done?
+      @mutex.synchronize do
+        unless lockless_done?
           @done_callbacks.append(block)
           return
         end
@@ -183,7 +172,7 @@ module AsyncFutures
     end
 
     def set_running_or_notify_cancel
-      synchronize do
+      @mutex.synchronize do
         case @state
         when CANCELLED
           @state = CANCELLED_AND_NOTIFIED
@@ -201,8 +190,8 @@ module AsyncFutures
     end
 
     def set_result(result) # rubocop:disable Naming/AccessorMethodName
-      synchronize do
-        raise InvalidStateError.new("#{@state}: #{self}") if done?
+      @mutex.synchronize do
+        raise InvalidStateError.new("#{@state}: #{self}") if lockless_done?
 
         @result = result
         @state = FINISHED
@@ -212,8 +201,8 @@ module AsyncFutures
     end
 
     def set_exception(exception) # rubocop:disable Naming/AccessorMethodName
-      synchronize do
-        raise InvalidStateError.new("#{@state}: #{self}") if done?
+      @mutex.synchronize do
+        raise InvalidStateError.new("#{@state}: #{self}") if lockless_done?
         raise ArgumentError.new("Not an Exception: #{exception.inspect}") unless exception.is_a?(Exception)
 
         @exception = exception
@@ -261,6 +250,28 @@ module AsyncFutures
 
     def logger
       AsyncFutures.logger
+    end
+
+    # Only safe to use these methods within the synchronized mutex.
+    # Thus why they are private.
+    def lockless_cancelled?
+      [CANCELLED, CANCELLED_AND_NOTIFIED].include? @state
+    end
+
+    def lockless_finished?
+      @state.equal? FINISHED
+    end
+
+    def lockless_pending?
+      @state.equal? PENDING
+    end
+
+    def lockless_running?
+      @state.equal? RUNNING
+    end
+
+    def lockless_done?
+      [CANCELLED, CANCELLED_AND_NOTIFIED, FINISHED].include? @state
     end
   end
 end
