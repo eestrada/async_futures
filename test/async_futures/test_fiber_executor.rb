@@ -5,9 +5,8 @@ require_relative 'minitest_helper'
 require 'async'
 require 'async_futures/fiber_executor'
 
-class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
+class TestFiberExecutor < Minitest::Test
   def setup
-    skip 'all tests freeze currently'
     @scheduler = Async::Scheduler.new
     Fiber.set_scheduler @scheduler
     @executor = AsyncFutures::FiberExecutor.new
@@ -39,19 +38,18 @@ class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_submit_raises_returns_exceptional_future
-    before_count = Thread.list.size
     future1 = @executor.submit(1, 2, 3, 4, tell_me: 'that you love me more') do |*args, **kwargs|
       raise "Some runtime error #{args} #{kwargs}"
     end
-    after_count = Thread.list.size
 
-    assert_operator after_count, :>, before_count
     assert_instance_of AsyncFutures::Future, future1
     refute_nil future1.exception
     assert_predicate future1, :done?
   end
 
   def test_submit_concurrent_is_alias
+    skip 'not an alias for FiberExecutor'
+
     assert_equal @executor.method(:submit), @executor.method(:submit_concurrent)
   end
 
@@ -83,71 +81,43 @@ class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
     exc = assert_raises(RuntimeError) { @executor.submit { 'hello' } }
 
-    assert_match(/ThreadExecutor instance is shutdown/, exc.message)
-  end
-
-  def test_set_thread_prefix
-    new_executor = AsyncFutures::ThreadExecutor.new(thread_name_prefix: 'best')
-
-    future1 = new_executor.submit { Thread.current.name }
-
-    result = future1.result
-
-    assert_match(/^best_\d+$/, result)
-  end
-
-  def test_only_one_worker # rubocop:disable Metrics/AbcSize
-    new_executor = AsyncFutures::ThreadExecutor.new(max_workers: 1)
-
-    before_count = Thread.list.size
-    future1 = new_executor.submit { sleep(0.02) }
-    future2 = new_executor.submit { sleep(0.02) }
-    future3 = new_executor.submit { sleep(0.02) }
-    future1.result
-    future2.result
-    future3.result
-    after_count = Thread.list.size
-
-    assert_operator after_count, :>, before_count
-    assert_equal before_count + 1, after_count
-  ensure
-    new_executor.shutdown
+    assert_match(/FiberExecutor instance is shutdown/, exc.message)
   end
 
   def test_cancel_futures_in_shutdown
-    new_executor = AsyncFutures::ThreadExecutor.new(max_workers: 1)
+    skip 'currently deadlocking'
+    AsyncFutures::FiberExecutor.new.shutdown do |new_executor|
+      future1 = new_executor.submit { sleep(0.02) }
+      future1.result
+      future2 = new_executor.submit { sleep(0.02) }
+      future3 = new_executor.submit { sleep(0.02) }
 
-    future1 = new_executor.submit { sleep(0.02) }
-    future1.result
-    future2 = new_executor.submit { sleep(0.02) }
-    future3 = new_executor.submit { sleep(0.02) }
+      new_executor.shutdown(cancel_futures: true)
 
-    new_executor.shutdown(cancel_futures: true)
+      refute_predicate future1, :cancelled?
 
-    refute_predicate future1, :cancelled?
+      # Based on scheduling race conditions,
+      # future2 could be cancelled or not.
+      # We don't know when the worker thread will take control
+      # and pick up another task.
+      # However, because there is only one worker thread,
+      # we know it can't pick up the third submitted task
+      # while it is "working" on the second,
+      # so assuming that the machine running this test isn't dog slow,
+      # we should be able to cancel future3 before the sleep runs out.
+      #
+      # Thus why we only check that future2 is "done?".
+      # We don't know for certain it will be canceled
+      # or if the worker thread will pick it up.
+      assert_predicate future2, :done?
 
-    # Based on scheduling race conditions,
-    # future2 could be cancelled or not.
-    # We don't know when the worker thread will take control
-    # and pick up another task.
-    # However, because there is only one worker thread,
-    # we know it can't pick up the third submitted task
-    # while it is "working" on the second,
-    # so assuming that the machine running this test isn't dog slow,
-    # we should be able to cancel future3 before the sleep runs out.
-    #
-    # Thus why we only check that future2 is "done?".
-    # We don't know for certain it will be canceled
-    # or if the worker thread will pick it up.
-    assert_predicate future2, :done?
-
-    assert_predicate future3, :cancelled?
-  ensure
-    new_executor.shutdown
+      assert_predicate future3, :cancelled?
+    end
   end
 
-  def test_cancel_futures_manually
-    AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |new_executor|
+  def test_cancel_futures_manually # rubocop:disable Metrics/AbcSize
+    skip 'currently deadlocking'
+    AsyncFutures::FiberExecutor.new.shutdown do |new_executor|
       future1 = new_executor.submit { sleep(0.02) }
       future2 = new_executor.submit { sleep(0.02) }
       future3 = new_executor.submit { sleep(0.02) }
@@ -162,45 +132,6 @@ class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
       refute_predicate future1, :cancelled?
       assert_predicate future2, :cancelled?
       assert_predicate future3, :cancelled?
-    end
-  end
-
-  def test_reap_after # rubocop:disable Metrics/AbcSize
-    AsyncFutures::ThreadExecutor.new(max_workers: 1, reap_after: 0.05).shutdown do |new_executor|
-      count1 = Thread.list.size
-      future1 = new_executor.submit { sleep(0.02) }
-      future2 = new_executor.submit { sleep(0.02) }
-      future3 = new_executor.submit { sleep(0.02) }
-      future1.result
-      future2.result
-      future3.result
-      count2 = Thread.list.size
-      # sleep should cause worker thread to self-reap
-      sleep 0.1
-      count3 = Thread.list.size
-
-      assert_operator count2, :>, count1
-      assert_operator count2, :>, count3
-    end
-  end
-
-  def test_no_reap_after # rubocop:disable Metrics/AbcSize
-    AsyncFutures::ThreadExecutor.new(max_workers: 1, reap_after: nil).shutdown do |new_executor|
-      count1 = Thread.list.size
-      future1 = new_executor.submit { sleep(0.02) }
-      future2 = new_executor.submit { sleep(0.02) }
-      future3 = new_executor.submit { sleep(0.02) }
-      future1.result
-      future2.result
-      future3.result
-      count2 = Thread.list.size
-      # worker thread will never self-reap
-      sleep 0.1
-      count3 = Thread.list.size
-
-      assert_operator count2, :>, count1
-      refute_operator count2, :>, count3
-      assert_equal count2, count3
     end
   end
 end

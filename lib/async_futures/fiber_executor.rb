@@ -46,7 +46,6 @@ module AsyncFutures
   # `Fiber` switching for those operations.
   class FiberExecutor
     include Executor
-    include MonitorMixin
 
     # Create a new `FiberExecutor`.
     #
@@ -73,6 +72,7 @@ module AsyncFutures
       @treat_as_concurrent = treat_as_concurrent
       @is_shutdown = false
       @futures = Set.new
+      @mutex = Thread::Mutex.new
 
       at_exit { shutdown(wait: false) }
     end
@@ -82,18 +82,12 @@ module AsyncFutures
     # See `AsyncFutures::Executor.submit` method for full documentation.
     def submit(*args, **kwargs, &block)
       raise ArgumentError.new('No block given') unless block
-      raise 'FiberExecutor instance is shutdown' if synchronize { @is_shutdown }
+      raise 'FiberExecutor instance is shutdown' if @mutex.synchronize { @is_shutdown }
 
       Future.new.tap do |future|
-        synchronize { @futures.add future }
+        @mutex.synchronize { @futures.add future }
 
         Fiber.schedule do
-          # `sleep(0)` to attempt to force the scheduled Fiber
-          # to immediately return control to the scheduler.
-          # Because this is dependent on the scheduler implementation,
-          # this is not guaranteed to work.
-          sleep(0)
-
           break unless future.set_running_or_notify_cancel
 
           begin
@@ -104,7 +98,7 @@ module AsyncFutures
             future.set_result(result)
           end
         ensure
-          synchronize { @futures.delete future }
+          @mutex.synchronize { @futures.delete future }
         end
       end
     end
@@ -130,10 +124,10 @@ module AsyncFutures
       block&.call(self)
     ensure
       unless check_and_set_shutdown!
-        futures_dup = synchronize { @futures.dup } if wait || cancel_futures
+        futures_dup = @mutex.synchronize { @futures.dup } if wait || cancel_futures
         futures_dup.reject!(&:cancel) if cancel_futures
         futures_dup.reject!(&:join) if wait
-        synchronize { @futures.replace(@futures & futures_dup) } if wait || cancel_futures
+        @mutex.synchronize { @futures.replace(@futures & futures_dup) } if wait || cancel_futures
       end
     end
 
@@ -143,7 +137,7 @@ module AsyncFutures
     # then sets internal shutdown state to `true`.
     # This is all done atomically to avoid race conditions.
     def check_and_set_shutdown!
-      synchronize do
+      @mutex.synchronize do
         return true if @is_shutdown
 
         @is_shutdown = true
