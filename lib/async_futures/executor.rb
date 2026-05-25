@@ -80,7 +80,8 @@ module AsyncFutures
     # ```
     #
     # `Future` instances are joined
-    # as the returned `Enumerator::Lazy` is enumerated over.
+    # as the returned `Enumerator::Lazy` is enumerated over
+    # via a terminal method like `force`, `to_a`, or `each`.
     # The `Future.result` values,
     # and not the `Future` instances themselves,
     # are what is returned.
