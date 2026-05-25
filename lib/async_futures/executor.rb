@@ -64,8 +64,10 @@ module AsyncFutures
     end
 
     # Similar to `enumerable.map(&block)` except:
-    # `block` is executed asynchronously
-    # and several calls to block may be made concurrently.
+    #
+    # - `block` is executed asynchronously
+    # - several calls to block may be made concurrently
+    # - Instead of an `Array`, an `Enumerator::Lazy` is returned
     #
     # Just like `enumerable.map`,
     # args are splatted for the block if there are multiple args.
@@ -73,13 +75,15 @@ module AsyncFutures
     #
     # ```ruby
     # ThreadExecutor.new.map(enum.each_with_index) do |e, i|
-    #     puts "element #{e} is at index #{i}"
+    #     [e, i]
     # end
     # ```
     #
-    # An `Enumerator::Lazy` instance will be returned.
     # `Future` instances are joined
-    # as the `Enumerator::Lazy` is enumerated over.
+    # as the returned `Enumerator::Lazy` is enumerated over.
+    # The `Future.result` values,
+    # and not the `Future` instances themselves,
+    # are what is returned.
     #
     # If a `block` call raises an exception,
     # then that exception will be raised
@@ -95,30 +99,51 @@ module AsyncFutures
     # then execution will raise `Timeout::Error`
     # if more than `timeout_sec` seconds elapses.
     # The elapsed time includes both the initial submission of tasks
-    # *and* the enumeration of `Future` results that follows it.
+    # *and* the enumeration of `Future` results from the returned `Enumerator::Lazy`.
     #
-    # However, no timeout error is raised until the first result is enumerated.
-    # Thus all tasks will be submitted,
-    # even if submission takes longer
-    # than the amount of time specified by `timeout_sec`.
-    # Keep this in mind when using any `Executor` implementation
-    # that carries the risk of immediately running submissions
-    # to completion (such as the base `Executor` or the `FiberExecutor`).
+    # Keep in mind that an `Enumerator::Lazy` can be enumerated over more than once
+    # *and* that the `timeout_sec` value will be evaluated each time it is enumerated
+    # *and* that the timeout value will be calculated from the time of first submission.
+    # Thus, enumeration could succeed on the first enumeration,
+    # but fail with a `Timeout::Error` on a subsequent enumeration.
+    # To avoid timing out on an enumeration after the first enumeration,
+    # you should save the result of the first enumeration in an `Array` (or similar)
+    # using something like `to_a` on the returned `Enumerator::Lazy` instance.
+    # If you immediately enumerate the returned `Enumerator::Lazy` only once
+    # or you have passed no `timeout_sec` value,
+    # then none of this is a concern.
     #
-    # Do ***not*** call this method with an infinite `Enumerable`:
-    # the first thing this method does is force it to an `Array`.
-    # An infinite `Enumerable` forced to an `Array`
-    # will eat up all memory and never return.
+    # Negative `timeout_sec` values are allowed,
+    # but they just raise `Timeout::Error` immediately.
+    #
+    # Do ***not*** call this method with an infinite `Enumerable`
+    # and no `timeout_sec` value:
+    # the first thing this method does is force it into a finite collection of futures.
+    # An infinite `Enumerable` forced into a finite collection
+    # will run forever and eventually eat up all memory.
     def map(enumerable, timeout_sec = nil, &block) # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
-      timeout_sec = nil if !timeout_sec.nil? && timeout_sec.zero?
+      timeout_sec = nil if timeout_sec&.zero?
 
-      clock_timeout = Time.now.to_f + timeout_sec unless timeout_sec.nil?
+      clock_timeout = Time.now.to_f + timeout_sec if timeout_sec
 
-      # Use `to_a` in case this is a lazy enumerator
-      # (we *want* to be eager in this circumstance).
-      futures = enumerable.map { |*args| submit(*args, &block) }.to_a
+      futures = []
+      begin
+        if timeout_sec
+          local_timeout = clock_timeout - Time.now.to_f
+          raise Timeout::Error unless local_timeout.positive?
 
-      futures.each_with_index.lazy.map do |future, index|
+          Timeout.timeout(local_timeout) do
+            enumerable.each { |*args| futures << submit(*args, &block) }
+          end
+        else
+          enumerable.each { |*args| futures << submit(*args, &block) }
+        end
+      rescue Exception => e # rubocop:disable Lint/RescueException
+        futures.each(&:cancel)
+        raise e
+      end
+
+      futures.lazy.each_with_index.map do |future, index|
         # if timeout_sec && !future.done?
         if timeout_sec
           local_timeout = clock_timeout - Time.now.to_f

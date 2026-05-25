@@ -102,6 +102,12 @@ class TestExecutor < Minitest::Test
     assert_equal [0, 1], ary_result
   end
 
+  def test_map_timeout_negative
+    enum = [0.05, 0.05]
+
+    assert_raises(Timeout::Error) { @executor.map(enum, -0.1) { |s| sleep(s) } }
+  end
+
   def test_map_timeout_zero
     enum = [0.05, 0.05]
     map_result = @executor.map(enum.each_with_index, 0.0) do |s, i|
