@@ -6,6 +6,7 @@ source 'https://rubygems.org'
 gemspec
 
 group 'testing' do
+  gem 'async'
   gem 'logger'
   gem 'minitest'
   gem 'minitest-mock'
