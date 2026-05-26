@@ -10,10 +10,7 @@ module AsyncFutures
   #
   # Heavily inspired by Python's `concurrent.futures.Future` class.
   class Future # rubocop:disable Metrics/ClassLength
-    include Timeout
-
     def initialize
-      super
       @mutex = Thread::Mutex.new
       @condition = Thread::ConditionVariable.new
       @state = PENDING
@@ -71,9 +68,9 @@ module AsyncFutures
     end
 
     # Return the value returned by the call. If the call hasn’t yet completed
-    # then this method will wait up to `timeout_sec` seconds. If the call
-    # hasn’t completed in `timeout_sec` seconds, then a `Timeout::Error` will
-    # be raised. `timeout_sec` can be an int or float. If  `timeout_sec` is not
+    # then this method will wait up to `timeout` seconds. If the call
+    # hasn’t completed in `timeout` seconds, then a `Timeout::Error` will
+    # be raised. `timeout` can be an int or float. If  `timeout` is not
     # specified or `nil`, there is no limit to the wait time.
     #
     # If the future is cancelled before completing then `CancelledError` will
@@ -81,8 +78,8 @@ module AsyncFutures
     #
     # If the call raised an exception, this method will raise the same
     # exception.
-    def result(timeout_sec = nil)
-      timeout(timeout_sec) do
+    def result(timeout = nil)
+      Timeout.timeout(timeout) do
         @mutex.synchronize do
           @condition.wait(@mutex) until lockless_done?
           raise CancelledError if lockless_cancelled?
@@ -95,17 +92,17 @@ module AsyncFutures
     end
 
     # Return the exception raised by the call. If the call hasn’t yet completed
-    # then this method will wait up to `timeout_sec` seconds. If the call
-    # hasn’t completed in `timeout_sec` seconds, then a `Timeout::Error` will
-    # be raised. `timeout_sec` can be an int or float. If `timeout_sec` is not
+    # then this method will wait up to `timeout` seconds. If the call
+    # hasn’t completed in `timeout` seconds, then a `Timeout::Error` will
+    # be raised. `timeout` can be an int or float. If `timeout` is not
     # specified or `nil`, there is no limit to the wait time.
     #
     # If the future is cancelled before completing then `CancelledError` will
     # be raised.
     #
     # If the call completed without raising, `nil` is returned.
-    def exception(timeout_sec = nil)
-      timeout(timeout_sec) do
+    def exception(timeout = nil)
+      Timeout.timeout(timeout) do
         @mutex.synchronize do
           @condition.wait(@mutex) until lockless_done?
           raise CancelledError if lockless_cancelled?
@@ -119,22 +116,22 @@ module AsyncFutures
     # (through regular completion, exception, or cancellation),
     # then return `self`.
     # If the call hasn’t yet completed
-    # then this method will wait up to `timeout_sec` seconds.
-    # If the call hasn’t completed in `timeout_sec` seconds,
+    # then this method will wait up to `timeout` seconds.
+    # If the call hasn’t completed in `timeout` seconds,
     # then `nil` will be returned.
-    # `timeout_sec` can be an int or float.
-    # If `timeout_sec` is not specified or `nil`,
+    # `timeout` can be an int or float.
+    # If `timeout` is not specified or `nil`,
     # there is no limit to the wait time.
     #
-    # Calling `join` with a `timeout_sec` value of zero
+    # Calling `join` with a `timeout` value of zero
     # will return immediately.
     # This is effectively equivalent to calling `done?`.
     #
     # Not present on Python's `concurrent.futures.Future` class.
-    def join(timeout_sec = nil)
-      return (done? && self) || nil if timeout_sec&.zero?
+    def join(timeout = nil)
+      return (done? && self) || nil if timeout&.zero?
 
-      timeout(timeout_sec) do
+      Timeout.timeout(timeout) do
         @mutex.synchronize do
           @condition.wait(@mutex) until lockless_done?
           self
