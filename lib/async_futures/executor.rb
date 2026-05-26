@@ -181,7 +181,7 @@ module AsyncFutures
     #
     # If `cancel_futures` is `true`, this method will cancel all pending futures
     # that the executor has not started running. Any futures that are completed
-    # or running won’t be cancelled, regardless of the value of `cancel_futures`.
+    # or running won't be cancelled, regardless of the value of `cancel_futures`.
     #
     # If both `cancel_futures` and `wait` are `true`, all futures that the executor
     # has started running will be completed prior to this method returning. The

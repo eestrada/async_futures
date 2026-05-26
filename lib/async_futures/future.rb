@@ -67,9 +67,9 @@ module AsyncFutures
       @mutex.synchronize { lockless_done? }
     end
 
-    # Return the value returned by the call. If the call hasn’t yet completed
+    # Return the value returned by the call. If the call hasn't yet completed
     # then this method will wait up to `timeout` seconds. If the call
-    # hasn’t completed in `timeout` seconds, then a `Timeout::Error` will
+    # hasn't completed in `timeout` seconds, then a `Timeout::Error` will
     # be raised. `timeout` can be an int or float. If  `timeout` is not
     # specified or `nil`, there is no limit to the wait time.
     #
@@ -91,9 +91,9 @@ module AsyncFutures
       end
     end
 
-    # Return the exception raised by the call. If the call hasn’t yet completed
+    # Return the exception raised by the call. If the call hasn't yet completed
     # then this method will wait up to `timeout` seconds. If the call
-    # hasn’t completed in `timeout` seconds, then a `Timeout::Error` will
+    # hasn't completed in `timeout` seconds, then a `Timeout::Error` will
     # be raised. `timeout` can be an int or float. If `timeout` is not
     # specified or `nil`, there is no limit to the wait time.
     #
@@ -115,9 +115,9 @@ module AsyncFutures
     # Wait for future to be `done?`
     # (through regular completion, exception, or cancellation),
     # then return `self`.
-    # If the call hasn’t yet completed
+    # If the call hasn't yet completed
     # then this method will wait up to `timeout` seconds.
-    # If the call hasn’t completed in `timeout` seconds,
+    # If the call hasn't completed in `timeout` seconds,
     # then `nil` will be returned.
     # `timeout` can be an int or float.
     # If `timeout` is not specified or `nil`,
