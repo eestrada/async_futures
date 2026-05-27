@@ -12,7 +12,6 @@ require_relative 'async_futures/version'
 require_relative 'async_futures/error'
 require_relative 'async_futures/future'
 require_relative 'async_futures/executor'
-require_relative 'async_futures/fiber_executor'
 require_relative 'async_futures/thread_executor'
 
 # ractor executor is only support in version 4.x or greater,

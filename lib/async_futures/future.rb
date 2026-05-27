@@ -45,13 +45,6 @@ module AsyncFutures
       @mutex.synchronize { lockless_pending? }
     end
 
-    # Return `True` if the call finished running and was not cancelled.
-    #
-    # Not present on Python `concurrent.futures.Future` class.
-    def finished?
-      @mutex.synchronize { lockless_finished? }
-    end
-
     # Return `True` if the call was successfully cancelled.
     def cancelled?
       @mutex.synchronize { lockless_cancelled? }
@@ -110,35 +103,6 @@ module AsyncFutures
           @exception
         end
       end
-    end
-
-    # Wait for future to be `done?`
-    # (through regular completion, exception, or cancellation),
-    # then return `self`.
-    # If the call hasn't yet completed
-    # then this method will wait up to `timeout` seconds.
-    # If the call hasn't completed in `timeout` seconds,
-    # then `nil` will be returned.
-    # `timeout` can be an int or float.
-    # If `timeout` is not specified or `nil`,
-    # there is no limit to the wait time.
-    #
-    # Calling `join` with a `timeout` value of zero
-    # will return immediately.
-    # This is effectively equivalent to calling `done?`.
-    #
-    # Not present on Python's `concurrent.futures.Future` class.
-    def join(timeout = nil)
-      return (done? && self) || nil if timeout&.zero?
-
-      Timeout.timeout(timeout) do
-        @mutex.synchronize do
-          @condition.wait(@mutex) until lockless_done?
-          self
-        end
-      end
-    rescue Timeout::Error
-      nil
     end
 
     # Attaches a block that will be called when the future finishes.
