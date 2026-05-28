@@ -3,7 +3,6 @@
 require_relative 'executor'
 
 require 'etc'
-require 'monitor'
 require 'set' # rubocop:disable Lint/RedundantRequireStatement
 
 module AsyncFutures
@@ -23,7 +22,6 @@ module AsyncFutures
   # at any given point in time.
   class ThreadExecutor
     include Executor
-    include MonitorMixin
 
     # Create a new `ThreadExecutor`.
     #
@@ -43,10 +41,10 @@ module AsyncFutures
     # If it is `nil` or not given,
     # they will not be reaped until the `ThreadExecutor` instance is `shutdown`.
     def initialize(max_workers: nil, thread_name_prefix: '', reap_after: nil)
-      super()
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
       @thread_name_prefix = thread_name_prefix.to_s
       @reap_after = reap_after
+      @mutex = Thread::Mutex.new
       @tasks = Thread::Queue.new
       @pool = Set.new
 
@@ -94,6 +92,10 @@ module AsyncFutures
     end
 
     private
+
+    def synchronize(&)
+      @mutex.synchronize(&)
+    end
 
     # Returns the current shutdown state,
     # then sets internal shutdown state to `true`.
