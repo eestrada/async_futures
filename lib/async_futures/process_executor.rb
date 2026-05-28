@@ -1,10 +1,5 @@
 # frozen_string_literal: true
 
-# The Ractor API was different before version 4.x of Ruby.
-if /^3\./ === RUBY_VERSION
-  raise LoadError.new("'async_futures/ractor_executor' is not supported in Ruby version '#{RUBY_VERSION}'")
-end
-
 require_relative 'executor'
 
 require 'etc'
@@ -14,9 +9,9 @@ module AsyncFutures
   # `Executor` implementation based on `Thread` primitives
   # that uses a pool of up to `max_workers` to execute calls concurrently.
   #
-  # `RactorExecutor` specific submission considerations:
+  # `ProcessExecutor` specific submission considerations:
   #
-  # For `RactorExecutor` the tasks are never run immediately upon submission.
+  # For `ProcessExecutor` the tasks are never run immediately upon submission.
   # They are placed into a work queue
   # to be picked up later by worker threads.
   #
@@ -25,10 +20,10 @@ module AsyncFutures
   # with any other particular task;
   # that is dependent on how many worker threads and tasks there are
   # at any given point in time.
-  class RactorExecutor
+  class ProcessExecutor
     include Executor
 
-    # Create a new `RactorExecutor`.
+    # Create a new `ProcessExecutor`.
     #
     # Uses a pool of up to `max_workers`
     # to execute tasks concurrently.
@@ -44,7 +39,7 @@ module AsyncFutures
     # worker threads will be shut down
     # if they haven't received any work after this amount of seconds.
     # If it is `nil` or not given,
-    # they will not be reaped until the `RactorExecutor` instance is `shutdown`.
+    # they will not be reaped until the `ProcessExecutor` instance is `shutdown`.
     def initialize(max_workers: nil, worker_name_prefix: '', reap_after: nil)
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
       @worker_name_prefix = worker_name_prefix.to_s
@@ -61,7 +56,7 @@ module AsyncFutures
     # See `AsyncFutures::Executor.submit` method for full documentation.
     def submit(*args, **kwargs, &block)
       raise ArgumentError.new('No block given') unless block
-      raise 'RactorExecutor instance is shutdown' if @tasks.closed?
+      raise 'ProcessExecutor instance is shutdown' if @tasks.closed?
 
       Future.new.tap do |future|
         @tasks.push([future, block, args, kwargs])
@@ -73,7 +68,7 @@ module AsyncFutures
 
     public :map
 
-    # Shutdown `RactorExecutor` instance.
+    # Shutdown `ProcessExecutor` instance.
     #
     # See `AsyncFutures::Executor.shutdown` for full documentation.
     def shutdown(wait: true, cancel_futures: false, &block)
