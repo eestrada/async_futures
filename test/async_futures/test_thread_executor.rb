@@ -81,8 +81,8 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     assert_match(/ThreadExecutor instance is shutdown/, exc.message)
   end
 
-  def test_set_thread_prefix
-    new_executor = AsyncFutures::ThreadExecutor.new(thread_name_prefix: 'best')
+  def test_set_worker_name_prefix
+    new_executor = AsyncFutures::ThreadExecutor.new(worker_name_prefix: 'best')
 
     future1 = new_executor.submit { Thread.current.name }
 

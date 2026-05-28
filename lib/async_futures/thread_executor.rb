@@ -32,7 +32,7 @@ module AsyncFutures
     # Workers are spawned lazily as needed
     # when tasks are added to the work queue.
     #
-    # The parameter `thread_name_prefix` can be used
+    # The parameter `worker_name_prefix` can be used
     # to optionally add a prefix to generated `Thread` names.
     #
     # If the `reap_after` keyword argument is given,
@@ -40,9 +40,9 @@ module AsyncFutures
     # if they haven't received any work after this amount of seconds.
     # If it is `nil` or not given,
     # they will not be reaped until the `ThreadExecutor` instance is `shutdown`.
-    def initialize(max_workers: nil, thread_name_prefix: '', reap_after: nil)
+    def initialize(max_workers: nil, worker_name_prefix: '', reap_after: nil)
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
-      @thread_name_prefix = thread_name_prefix.to_s
+      @worker_name_prefix = worker_name_prefix.to_s
       @reap_after = reap_after
       @mutex = Thread::Mutex.new
       @tasks = Thread::Queue.new
@@ -118,7 +118,7 @@ module AsyncFutures
     # Always spawn a worker
     def spawn_worker # rubocop:disable Metrics/AbcSize
       thread = Thread.new do
-        Thread.current.name = "#{@thread_name_prefix}_#{Thread.current.object_id}" unless @thread_name_prefix.empty?
+        Thread.current.name = "#{@worker_name_prefix}_#{Thread.current.object_id}" unless @worker_name_prefix.empty?
 
         while (task = @tasks.pop(timeout: @reap_after))
           tfuture, tblock, targs, tkwargs = task
