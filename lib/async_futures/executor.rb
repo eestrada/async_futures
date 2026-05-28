@@ -144,7 +144,7 @@ module AsyncFutures
         raise e
       end
 
-      futures.lazy.each_with_index.map do |future, index|
+      futures.each_with_index.lazy.map do |future, index|
         # if timeout_sec && !future.done?
         if timeout_sec
           local_timeout = clock_timeout - Time.now.to_f
