@@ -13,4 +13,7 @@ module AsyncFutures
 
   # Error that is raised for invalid operations on a cancelled Future.
   class CancelledError < Error; end
+
+  # Error for Executor errors related to Ractors.
+  class RactorError < Error; end
 end

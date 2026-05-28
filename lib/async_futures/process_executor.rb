@@ -18,9 +18,15 @@ module AsyncFutures
   # Process workers are not reused for work.
   # Each task gets a freshly forked process.
   # This is because marshalling anonymous blocks is not trivial;
-  # it is simpler to just fork.
+  # it is simpler to just fork after the block closure has been defined.
   # Use `ThreadExecutor` or `RactorExecutor`
   # for `Executor` implementations that support worker reuse.
+  #
+  # Consequently, this executor is only really useful for expensive calculations
+  # where the startup time for a process
+  # is dwarfed by the time needed for the actual work.
+  # If RactorExecutor is available on your Ruby version
+  # it is almost certainly a better choice than this.
   #
   # This does _not_ guarantee
   # that any particular task will be run concurrently

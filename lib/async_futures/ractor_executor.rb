@@ -40,17 +40,18 @@ module AsyncFutures
     # The parameter `worker_name_prefix` can be used
     # to optionally add a prefix to generated `Thread` names.
     #
-    # If the `reap_after` keyword argument is given,
-    # worker threads will be shut down
-    # if they haven't received any work after this amount of seconds.
-    # If it is `nil` or not given,
-    # they will not be reaped until the `RactorExecutor` instance is `shutdown`.
-    def initialize(max_workers: nil, worker_name_prefix: '', reap_after: nil)
+    # If the `move_result` keyword argument is `true`,
+    # results from worker ractors will be moved instead of copied.
+    # Moving is faster, but less safe
+    # if the worker ractor keeps the values around for some reason.
+    def initialize(max_workers: nil, worker_name_prefix: '', move_result: false) # rubocop:disable Metrics/AbcSize
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
       @worker_name_prefix = worker_name_prefix.to_s
-      @reap_after = reap_after
+      @move_result = !!move_result # rubocop:disable Style/DoubleNegation
       @mutex = Thread::Mutex.new
       @tasks = Thread::Queue.new
+      @work_ports = @max_workers.times.to_h { [Ractor::Port.new, nil] }
+      @results_ports = {}
       @pool = Set.new
 
       at_exit { shutdown(wait: false) }
@@ -117,31 +118,33 @@ module AsyncFutures
     # Only spawn a worker if one is needed.
     def maybe_spawn_worker
       # synchronize when interacting directly with @pool
-      spawn_worker if !@tasks.empty? && synchronize { @pool.size } < @max_workers
+      synchronize { spawn_worker } if !@tasks.empty? && synchronize { @pool.size } < @max_workers
     end
 
     # Always spawn a worker
-    def spawn_worker # rubocop:disable Metrics/AbcSize
-      thread = Thread.new do
-        Thread.current.name = "#{@worker_name_prefix}_#{Thread.current.object_id}" unless @worker_name_prefix.empty?
-
-        while (task = @tasks.pop(timeout: @reap_after))
-          tfuture, tblock, targs, tkwargs = task
-
-          next unless tfuture.set_running_or_notify_cancel
+    def spawn_worker
+      worker = Ractor.new(@results_port, @move_result) do |results_port, move_result|
+        loop do
+          task = Ractor.receive
+          case task
+          when :shutdown
+            break
+          when Array
+            future_id, block, args, kwargs = task
+          else
+            raise RactorError.new("Unknown message received: #{task}")
+          end
 
           begin
-            result = tblock.call(*targs, **tkwargs)
+            result = block.call(*args, **kwargs)
           rescue Exception => e # rubocop:disable Lint/RescueException
-            tfuture.set_exception(e)
+            results_port.send([future_id, :exception, e], move: move_result)
           else
-            tfuture.set_result(result)
+            results_port.send([future_id, :result, result], move: move_result)
           end
         end
-      ensure
-        synchronize { @pool.delete Thread.current }
       end
-      synchronize { @pool.add thread }
+      synchronize { @pool.add worker }
     end
   end
 end
