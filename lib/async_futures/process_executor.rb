@@ -6,14 +6,21 @@ require 'etc'
 require 'set' # rubocop:disable Lint/RedundantRequireStatement
 
 module AsyncFutures
-  # `Executor` implementation based on `Thread` primitives
-  # that uses a pool of up to `max_workers` to execute calls concurrently.
+  # `Executor` implementation based on Process forking
+  # that uses up to `max_workers` to execute calls concurrently.
   #
   # `ProcessExecutor` specific submission considerations:
   #
   # For `ProcessExecutor` the tasks are never run immediately upon submission.
   # They are placed into a work queue
-  # to be picked up later by worker threads.
+  # to be picked up later.
+  #
+  # Process workers are not reused for work.
+  # Each task gets a freshly forked process.
+  # This is because marshalling anonymous blocks is not trivial;
+  # it is simpler to just fork.
+  # Use `ThreadExecutor` or `RactorExecutor`
+  # for `Executor` implementations that support worker reuse.
   #
   # This does _not_ guarantee
   # that any particular task will be run concurrently
