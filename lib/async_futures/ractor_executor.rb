@@ -143,18 +143,27 @@ module AsyncFutures
         while (task = @tasks.pop)
           future, block, args, kwargs = task
 
-          @futures[future.object_id] = future # rubocop:disable Lint/HashCompareByIdentity
+          next unless future.set_running_or_notify_cancel
 
-          ractor_task = [
-            future.object_id,
-            Ractor.shareable_proc(block),
-            Ractor.make_shareable(args, copy: true),
-            Ractor.make_shareable(kwargs, copy: true),
-          ]
+          if (next_ractor = @available_workers.pop)
+            begin
+              @futures[future.object_id] = future # rubocop:disable Lint/HashCompareByIdentity
 
-          next_ractor = @available_workers.pop
+              ractor_task = [
+                future.object_id,
+                Ractor.shareable_proc(block),
+                Ractor.make_shareable(args, copy: true),
+                Ractor.make_shareable(kwargs, copy: true),
+              ]
 
-          next_ractor.send(ractor_task, move: false)
+              next_ractor.send(ractor_task, move: false)
+            rescue Exception => e # rubocop:disable Lint/RescueException
+              @futures.delete(future.object_id)
+              future.set_exception(e)
+            end
+          else
+            future.set_exception(RactorError.new('Worker queue closed'))
+          end
         end
 
         while (next_ractor = @available_workers.pop)
