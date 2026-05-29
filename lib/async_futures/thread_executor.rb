@@ -116,12 +116,12 @@ module AsyncFutures
       spawn_worker if !@tasks.empty? && synchronize { @pool.size } < @max_workers
     end
 
-    def new_name
+    def new_worker_name
       synchronize do
         if @worker_name_prefix
           "#{@worker_name_prefix}_#{@worker_count += 1}"
         else
-          "#{self.class.name}_worker_#{@worker_count += 1}"
+          "#{self.class.name}_#{object_id}_worker_#{@worker_count += 1}"
         end
       end
     end
@@ -129,6 +129,7 @@ module AsyncFutures
     # Always spawn a worker
     def spawn_worker
       thread = Thread.new do
+        Thread.current.name = new_worker_name
         while (task = @tasks.pop(timeout: @reap_after))
           tfuture, tblock, targs, tkwargs = task
 
@@ -146,7 +147,6 @@ module AsyncFutures
         synchronize { @pool.delete Thread.current }
       end
       synchronize { @pool.add thread }
-      thread.name = new_name
     end
   end
 end

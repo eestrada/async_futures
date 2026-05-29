@@ -121,12 +121,12 @@ module AsyncFutures
       end
     end
 
-    def new_name
+    def new_worker_name
       synchronize do
         if @worker_name_prefix
           "#{@worker_name_prefix}_#{@worker_count += 1}"
         else
-          "#{self.class.name}_worker_#{@worker_count += 1}"
+          "#{self.class.name}_#{object_id}_worker_#{@worker_count += 1}"
         end
       end
     end
@@ -136,7 +136,9 @@ module AsyncFutures
     end
 
     def spawn_task_feeder
-      feeder = Thread.new do
+      feeder = Thread.new("task_feeder_#{object_id}") do |feeder_name|
+        feeder.name = feeder_name
+
         while (task = @tasks.pop)
           future, block, args, kwargs = task
 
@@ -154,7 +156,6 @@ module AsyncFutures
       end
 
       synchronize { @task_feeder = feeder }
-      feeder.name = "task_feeder_#{object_id}"
     end
 
     def maybe_spawn_result_feeder
@@ -162,12 +163,11 @@ module AsyncFutures
     end
 
     def spawn_result_feeder
-      feeder = Thread.new do
-        puts 'hello'
+      feeder = Thread.new("result_feeder_#{object_id}") do |feeder_name|
+        feeder.name = feeder_name
       end
 
       synchronize { @result_feeder = feeder }
-      feeder.name = "result_feeder_#{object_id}"
     end
 
     # Only spawn a worker if one is needed.
@@ -178,7 +178,7 @@ module AsyncFutures
 
     # Always spawn a worker
     def spawn_worker
-      worker = Ractor.new(@results_port, @move_result, name: new_name) do |results_port, move_result|
+      worker = Ractor.new(@results_port, @move_result, name: new_worker_name) do |results_port, move_result|
         loop do
           case (task = Ractor.receive)
           when :shutdown
