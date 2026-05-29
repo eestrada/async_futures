@@ -25,7 +25,7 @@ module AsyncFutures
   # with any other particular task;
   # that is dependent on how many worker threads and tasks there are
   # at any given point in time.
-  class RactorExecutor
+  class RactorExecutor # rubocop:disable Metrics/ClassLength
     include Executor
 
     # Create a new `RactorExecutor`.
@@ -44,15 +44,19 @@ module AsyncFutures
     # results from worker ractors will be moved instead of copied.
     # Moving is faster, but less safe
     # if the worker ractor keeps the values around for some reason.
-    def initialize(max_workers: nil, worker_name_prefix: '', move_result: false) # rubocop:disable Metrics/AbcSize
+    def initialize(max_workers: nil, worker_name_prefix: nil, move_result: false) # rubocop:disable Metrics/AbcSize
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
-      @worker_name_prefix = worker_name_prefix.to_s
+      @worker_name_prefix = worker_name_prefix
       @move_result = !!move_result # rubocop:disable Style/DoubleNegation
       @mutex = Thread::Mutex.new
       @tasks = Thread::Queue.new
+      @available_workers = Thread::Queue.new
       @work_ports = @max_workers.times.to_h { [Ractor::Port.new, nil] }
       @results_ports = {}
       @pool = Set.new
+      @worker_count = 0
+      @task_feeder = nil
+      @result_feeder = nil
 
       at_exit { shutdown(wait: false) }
     end
@@ -66,6 +70,8 @@ module AsyncFutures
 
       Future.new.tap do |future|
         @tasks.push([future, block, args, kwargs])
+        maybe_spawn_task_feeder
+        maybe_spawn_result_feeder
         maybe_spawn_worker
       end
     end
@@ -115,18 +121,66 @@ module AsyncFutures
       end
     end
 
+    def new_name
+      synchronize do
+        if @worker_name_prefix
+          "#{@worker_name_prefix}_#{@worker_count += 1}"
+        else
+          "#{self.class.name}_worker_#{@worker_count += 1}"
+        end
+      end
+    end
+
+    def maybe_spawn_task_feeder
+      spawn_task_feeder unless synchronize { @task_feeder }
+    end
+
+    def spawn_task_feeder
+      feeder = Thread.new do
+        while (task = @tasks.pop)
+          future, block, args, kwargs = task
+
+          ractor_task = [
+            future.object_id,
+            Ractor.shareable_proc(block),
+            Ractor.make_shareable(args, copy: true),
+            Ractor.make_shareable(kwargs, copy: true),
+          ]
+
+          next_ractor = @available_workers.pop
+
+          next_ractor.send(ractor_task)
+        end
+      end
+
+      synchronize { @task_feeder = feeder }
+      feeder.name = "task_feeder_#{object_id}"
+    end
+
+    def maybe_spawn_result_feeder
+      spawn_result_feeder unless synchronize { @result_feeder }
+    end
+
+    def spawn_result_feeder
+      feeder = Thread.new do
+        puts 'hello'
+      end
+
+      synchronize { @result_feeder = feeder }
+      feeder.name = "result_feeder_#{object_id}"
+    end
+
     # Only spawn a worker if one is needed.
     def maybe_spawn_worker
       # synchronize when interacting directly with @pool
-      synchronize { spawn_worker } if !@tasks.empty? && synchronize { @pool.size } < @max_workers
+      spawn_worker if !@tasks.empty? && synchronize { @pool.size } < @max_workers
     end
 
     # Always spawn a worker
     def spawn_worker
-      worker = Ractor.new(@results_port, @move_result) do |results_port, move_result|
+      worker = Ractor.new(@results_port, @move_result, name: new_name) do |results_port, move_result|
         loop do
-          task = Ractor.receive
-          case task
+          case (task = Ractor.receive)
           when :shutdown
             break
           when Array
@@ -145,6 +199,7 @@ module AsyncFutures
         end
       end
       synchronize { @pool.add worker }
+      @available_workers.push worker
     end
   end
 end

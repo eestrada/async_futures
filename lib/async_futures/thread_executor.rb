@@ -40,13 +40,14 @@ module AsyncFutures
     # if they haven't received any work after this amount of seconds.
     # If it is `nil` or not given,
     # they will not be reaped until the `ThreadExecutor` instance is `shutdown`.
-    def initialize(max_workers: nil, worker_name_prefix: '', reap_after: nil)
+    def initialize(max_workers: nil, worker_name_prefix: nil, reap_after: nil)
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
-      @worker_name_prefix = worker_name_prefix.to_s
+      @worker_name_prefix = worker_name_prefix
       @reap_after = reap_after
       @mutex = Thread::Mutex.new
       @tasks = Thread::Queue.new
       @pool = Set.new
+      @worker_count = 0
 
       at_exit { shutdown(wait: false) }
     end
@@ -115,11 +116,19 @@ module AsyncFutures
       spawn_worker if !@tasks.empty? && synchronize { @pool.size } < @max_workers
     end
 
-    # Always spawn a worker
-    def spawn_worker # rubocop:disable Metrics/AbcSize
-      thread = Thread.new do
-        Thread.current.name = "#{@worker_name_prefix}_#{Thread.current.object_id}" unless @worker_name_prefix.empty?
+    def new_name
+      synchronize do
+        if @worker_name_prefix
+          "#{@worker_name_prefix}_#{@worker_count += 1}"
+        else
+          "#{self.class.name}_worker_#{@worker_count += 1}"
+        end
+      end
+    end
 
+    # Always spawn a worker
+    def spawn_worker
+      thread = Thread.new do
         while (task = @tasks.pop(timeout: @reap_after))
           tfuture, tblock, targs, tkwargs = task
 
@@ -137,6 +146,7 @@ module AsyncFutures
         synchronize { @pool.delete Thread.current }
       end
       synchronize { @pool.add thread }
+      thread.name = new_name
     end
   end
 end
