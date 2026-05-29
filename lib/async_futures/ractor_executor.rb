@@ -52,6 +52,7 @@ module AsyncFutures
       @tasks = Thread::Queue.new
       @available_workers = Thread::Queue.new
       @work_ports = @max_workers.times.to_h { [Ractor::Port.new, nil] }
+      @futures = {}
       @results_ports = {}
       @pool = Set.new
       @worker_count = 0
@@ -132,15 +133,17 @@ module AsyncFutures
     end
 
     def maybe_spawn_task_feeder
-      spawn_task_feeder unless synchronize { @task_feeder }
+      synchronize { spawn_task_feeder unless @task_feeder }
     end
 
-    def spawn_task_feeder
-      feeder = Thread.new("task_feeder_#{object_id}") do |feeder_name|
+    def spawn_task_feeder # rubocop:disable Metrics/AbcSize
+      @task_feeder = Thread.new("task_feeder_#{object_id}") do |feeder_name|
         feeder.name = feeder_name
 
         while (task = @tasks.pop)
           future, block, args, kwargs = task
+
+          @futures[future.object_id] = future # rubocop:disable Lint/HashCompareByIdentity
 
           ractor_task = [
             future.object_id,
@@ -151,34 +154,84 @@ module AsyncFutures
 
           next_ractor = @available_workers.pop
 
-          next_ractor.send(ractor_task)
+          next_ractor.send(ractor_task, move: false)
+        end
+
+        while (next_ractor = @available_workers.pop)
+          next_ractor.send(:shutdown)
         end
       end
-
-      synchronize { @task_feeder = feeder }
     end
 
     def maybe_spawn_result_feeder
-      spawn_result_feeder unless synchronize { @result_feeder }
+      synchronize { spawn_result_feeder unless @result_feeder }
     end
 
-    def spawn_result_feeder
-      feeder = Thread.new("result_feeder_#{object_id}") do |feeder_name|
+    def spawn_result_feeder # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity
+      @result_feeder = Thread.new("result_feeder_#{object_id}") do |feeder_name|
         feeder.name = feeder_name
-      end
 
-      synchronize { @result_feeder = feeder }
+        loop do
+          port, msg = Ractor.select(*@work_ports.keys)
+
+          case msg
+          when Symbol
+            case msg
+            when :exited
+              # remove ractor from mappings
+              ractor = @work_ports[port]
+              @work_ports[port] = nil
+              @pool.delete ractor
+            when :aborted # rubocop:disable Lint/DuplicateBranch
+              # remove ractor from mappings
+              # And report error. check Ractor.value to get final exception value.
+              ractor = @work_ports[port]
+              @work_ports[port] = nil
+              @pool.delete ractor
+
+              # TODO: if there is an in flight future
+              # associated with this ractor
+              # that didn't get addressed,
+              # then we need to finish the future exceptionally.
+            else
+              exc_msg = "Unknown result symbol #{msg}"
+              exception = RactorExecutor.new(exc_msg)
+              future.set_exception(exception)
+              AsyncFutures.logger&.error('RactorExecutor') { exc_msg }
+            end
+          when Array
+            future_id, type, value = msg
+
+            future = @futures[future_id]
+
+            case type
+            when :exception
+              future.set_exception(value)
+            when :result
+              future.set_result(value)
+            else
+              exc_msg = "Unknown result type #{type}"
+              exception = RactorExecutor.new(exc_msg)
+              future.set_exception(exception)
+              AsyncFutures.logger&.error('RactorExecutor') { exc_msg }
+            end
+          else
+            raise RactorError.new("Unknown message received: #{task}")
+          end
+        end
+      end
     end
 
     # Only spawn a worker if one is needed.
     def maybe_spawn_worker
       # synchronize when interacting directly with @pool
-      spawn_worker if !@tasks.empty? && synchronize { @pool.size } < @max_workers
+      synchronize { spawn_worker if !@tasks.empty? && @pool.size < @max_workers }
     end
 
     # Always spawn a worker
-    def spawn_worker
-      worker = Ractor.new(@results_port, @move_result, name: new_worker_name) do |results_port, move_result|
+    def spawn_worker # rubocop:disable Metrics/AbcSize
+      available_port = @work_ports.find { |_key, value| value.nil? }.first
+      worker = Ractor.new(available_port, @move_result, name: new_worker_name) do |results_port, move_result|
         loop do
           case (task = Ractor.receive)
           when :shutdown
@@ -198,7 +251,10 @@ module AsyncFutures
           end
         end
       end
-      synchronize { @pool.add worker }
+
+      @work_ports[available_port] = worker
+      worker.monitor available_port
+      @pool.add worker
       @available_workers.push worker
     end
   end
