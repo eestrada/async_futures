@@ -202,44 +202,36 @@ module AsyncFutures
           port, msg = Ractor.select(*work_ports_dup.keys)
 
           case msg
-          when Symbol
-            case msg
-            when :exited
-              # remove ractor from mappings
-              synchronize do
-                ractor = @work_ports[port]
-                @work_ports.delete(port)
-                @pool.delete ractor
+          when :exited
+            # remove ractor from mappings
+            synchronize do
+              ractor = @work_ports[port]
+              @work_ports.delete(port)
+              @pool.delete ractor
+            end
+          when :aborted
+            # remove ractor from mappings
+            old_worker = synchronize do
+              @work_ports[port].tap do |old_worker|
+                @work_ports[port] = nil
+                @pool.delete old_worker
               end
-            when :aborted
-              # remove ractor from mappings
-              old_worker = synchronize do
-                @work_ports[port].tap do |old_worker|
-                  @work_ports[port] = nil
-                  @pool.delete old_worker
-                end
-              end
+            end
 
-              # And report error.
-              AsyncFutures.logger&.error('RactorExecutor') { "Ractor failed unexpectedly: #{old_worker}" }
+            # And report error.
+            AsyncFutures.logger&.error('RactorExecutor') { "Ractor failed unexpectedly: #{old_worker}" }
 
-              # because worker aborted unexpectedly, we want to replace it.
-              maybe_spawn_worker
+            # because worker aborted unexpectedly, we want to replace it.
+            maybe_spawn_worker
 
-              # Finish all in-flight futures
-              # with exception from worker.
-              futures = synchronize { @worker_futures.delete(old_worker) || Set.new }
-              begin
-                # get final exception value.
-                old_worker.join
-              rescue Exception => e # rubocop:disable Lint/RescueException
-                futures.each { |f| f.set_exception(e) }
-              end
-            else
-              exc_msg = "Unknown result symbol #{msg}"
-              exception = RactorExecutor.new(exc_msg)
-              future.set_exception(exception)
-              AsyncFutures.logger&.error('RactorExecutor') { exc_msg }
+            # Finish all in-flight futures
+            # with exception from worker.
+            futures = synchronize { @worker_futures.delete(old_worker) || Set.new }
+            begin
+              # get final exception value.
+              old_worker.join
+            rescue Exception => e # rubocop:disable Lint/RescueException
+              futures.each { |f| f.set_exception(e) }
             end
           when Array
             future_id, type, value = msg
@@ -258,6 +250,10 @@ module AsyncFutures
               AsyncFutures.logger&.error('RactorExecutor') { exc_msg }
             end
           else
+            exc_msg = "Unknown result symbol #{msg}"
+            exception = RactorExecutor.new(exc_msg)
+            future.set_exception(exception)
+            AsyncFutures.logger&.error('RactorExecutor') { exc_msg }
             raise RactorError.new("Unknown message received: #{task}")
           end
         end
