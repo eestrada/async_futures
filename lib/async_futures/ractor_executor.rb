@@ -51,6 +51,9 @@ module AsyncFutures
       @mutex = Thread::Mutex.new
       @tasks = Thread::Queue.new
       @available_workers = Thread::Queue.new
+
+      # All private variables after this point
+      # require synchronization to safely interact with.
       @work_ports = @max_workers.times.to_h { [Ractor::Port.new, nil] }
       @futures = {}
 
@@ -203,14 +206,12 @@ module AsyncFutures
 
           case msg
           when :exited
-            # remove ractor from mappings
             synchronize do
               ractor = @work_ports[port]
               @work_ports.delete(port)
               @pool.delete ractor
             end
           when :aborted
-            # remove ractor from mappings
             old_worker = synchronize do
               @work_ports[port].tap do |old_worker|
                 @work_ports[port] = nil
@@ -218,17 +219,12 @@ module AsyncFutures
               end
             end
 
-            # And report error.
             AsyncFutures.logger&.error('RactorExecutor') { "Ractor failed unexpectedly: #{old_worker}" }
 
-            # because worker aborted unexpectedly, we want to replace it.
             maybe_spawn_worker
 
-            # Finish all in-flight futures
-            # with exception from worker.
             futures = synchronize { @worker_futures.delete(old_worker) || Set.new }
             begin
-              # get final exception value.
               old_worker.join
             rescue Exception => e # rubocop:disable Lint/RescueException
               futures.each { |f| f.set_exception(e) }
