@@ -53,6 +53,11 @@ module AsyncFutures
       @available_workers = Thread::Queue.new
       @work_ports = @max_workers.times.to_h { [Ractor::Port.new, nil] }
       @futures = {}
+
+      # When Fibers are eventually supported,
+      # a worker can/will have more than one future associated with it.
+      @worker_futures = Hash.new { |hash, key| hash[key] = Set.new }
+
       @results_ports = {}
       @pool = Set.new
       @worker_count = 0
@@ -145,9 +150,12 @@ module AsyncFutures
 
           next unless future.set_running_or_notify_cancel
 
-          if (next_ractor = @available_workers.pop)
+          if (next_worker = @available_workers.pop)
             begin
-              @futures[future.object_id] = future # rubocop:disable Lint/HashCompareByIdentity
+              synchronize do
+                @futures[future.object_id] = future # rubocop:disable Lint/HashCompareByIdentity
+                @worker_futures[next_worker].add(future)
+              end
 
               ractor_task = [
                 future.object_id,
@@ -156,9 +164,12 @@ module AsyncFutures
                 Ractor.make_shareable(kwargs, copy: true),
               ]
 
-              next_ractor.send(ractor_task, move: false)
+              next_worker.send(ractor_task, move: false)
             rescue Exception => e # rubocop:disable Lint/RescueException
-              @futures.delete(future.object_id)
+              synchronize do
+                @futures.delete(future.object_id)
+                @worker_futures[next_worker].delete(future)
+              end
               future.set_exception(e)
             end
           else
@@ -166,8 +177,12 @@ module AsyncFutures
           end
         end
 
-        while (next_ractor = @available_workers.pop)
-          next_ractor.send(:shutdown)
+        # once the task queue closes
+        # that means the executor is shutdown.
+        # We need to shutdown all workers until
+        # the worker queue gets shutdown by the `@results_feeder`.
+        while (next_worker = @available_workers.pop)
+          next_worker.send(:shutdown)
         end
       end
     end
@@ -176,32 +191,59 @@ module AsyncFutures
       synchronize { spawn_result_feeder unless @result_feeder }
     end
 
-    def spawn_result_feeder # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity
+    def spawn_result_feeder # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
       @result_feeder = Thread.new("result_feeder_#{object_id}") do |feeder_name|
         feeder.name = feeder_name
 
         loop do
-          port, msg = Ractor.select(*@work_ports.keys)
+          work_ports_dup = synchronize { @work_ports.dup }
+          break if work_ports_dup.empty?
+
+          port, msg = Ractor.select(*work_ports_dup.keys)
 
           case msg
           when Symbol
             case msg
             when :exited
               # remove ractor from mappings
-              ractor = @work_ports[port]
-              @work_ports[port] = nil
-              @pool.delete ractor
-            when :aborted # rubocop:disable Lint/DuplicateBranch
+              synchronize do
+                ractor = @work_ports[port]
+                @work_ports.delete(port)
+                @pool.delete ractor
+              end
+            when :aborted
               # remove ractor from mappings
-              # And report error. check Ractor.value to get final exception value.
-              ractor = @work_ports[port]
-              @work_ports[port] = nil
-              @pool.delete ractor
+              old_worker = synchronize do
+                @work_ports[port].tap do |old_worker|
+                  @work_ports[port] = nil
+                  @pool.delete old_worker
+                end
+              end
 
-              # TODO: if there is an in flight future
-              # associated with this ractor
-              # that didn't get addressed,
-              # then we need to finish the future exceptionally.
+              # And report error.
+              AsyncFutures.logger&.error('RactorExecutor') { "Ractor failed unexpectedly: #{old_worker}" }
+
+              # because worker aborted unexpectedly, we want to replace it.
+              if (new_worker = maybe_spawn_worker)
+                synchronize do
+                  @work_ports[port] = new_worker
+                  @pool.delete new_worker
+                end
+              end
+
+              # Finish all in-flight futures
+              # with exception from worker.
+              futures = synchronize { @worker_futures.delete(old_worker) { Set.new } }
+              begin
+                # get final exception value.
+                old_worker.join
+              rescue Exception => e # rubocop:disable Lint/RescueException
+                futures.each { |f| f.set_exception(e) }
+              else
+                # Not even sure this is possible to trigger this branch
+                e = RactorExecutor.new('Ractor ended exceptionally, but raised no exception')
+                futures.each { |f| f.set_exception(e) }
+              end
             else
               exc_msg = "Unknown result symbol #{msg}"
               exception = RactorExecutor.new(exc_msg)
@@ -211,7 +253,7 @@ module AsyncFutures
           when Array
             future_id, type, value = msg
 
-            future = @futures[future_id]
+            future = synchronize { @futures[future_id] }
 
             case type
             when :exception
@@ -261,10 +303,12 @@ module AsyncFutures
         end
       end
 
-      @work_ports[available_port] = worker
-      worker.monitor available_port
-      @pool.add worker
-      @available_workers.push worker
+      worker.tap do |worker|
+        @work_ports[available_port] = worker
+        worker.monitor available_port
+        @pool.add worker
+        @available_workers.push worker
+      end
     end
   end
 end
