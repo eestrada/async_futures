@@ -224,25 +224,15 @@ module AsyncFutures
               AsyncFutures.logger&.error('RactorExecutor') { "Ractor failed unexpectedly: #{old_worker}" }
 
               # because worker aborted unexpectedly, we want to replace it.
-              if (new_worker = maybe_spawn_worker)
-                synchronize do
-                  @work_ports[port] = new_worker
-                  @pool.add new_worker
-                  @available_workers.push new_worker
-                end
-              end
+              maybe_spawn_worker
 
               # Finish all in-flight futures
               # with exception from worker.
-              futures = synchronize { @worker_futures.delete(old_worker) { Set.new } }
+              futures = synchronize { @worker_futures.delete(old_worker) || Set.new }
               begin
                 # get final exception value.
                 old_worker.join
               rescue Exception => e # rubocop:disable Lint/RescueException
-                futures.each { |f| f.set_exception(e) }
-              else
-                # Not even sure this is possible to trigger this branch
-                e = RactorExecutor.new('Ractor ended exceptionally, but raised no exception')
                 futures.each { |f| f.set_exception(e) }
               end
             else
