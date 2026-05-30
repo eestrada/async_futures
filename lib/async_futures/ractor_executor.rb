@@ -207,15 +207,16 @@ module AsyncFutures
           case msg
           when :exited
             synchronize do
-              ractor = @work_ports[port]
-              @work_ports.delete(port)
-              @pool.delete ractor
+              @work_ports[port].tap do |worker|
+                @pool.delete worker
+                @work_ports.delete(port)
+              end
             end
           when :aborted
             old_worker = synchronize do
               @work_ports[port].tap do |old_worker|
-                @work_ports[port] = nil
                 @pool.delete old_worker
+                @work_ports[port] = nil
               end
             end
 
@@ -253,6 +254,8 @@ module AsyncFutures
             raise RactorError.new("Unknown message received: #{task}")
           end
         end
+
+        @available_workers.close
       end
     end
 
@@ -264,7 +267,9 @@ module AsyncFutures
 
     # Always spawn a worker
     def spawn_worker # rubocop:disable Metrics/AbcSize
-      available_port = @work_ports.find { |_key, value| value.nil? }.first
+      available_port = @work_ports.find { |_key, value| value.nil? }&.first
+      return unless available_port
+
       worker = Ractor.new(available_port, @move_result, name: new_worker_name) do |results_port, move_result|
         loop do
           case (task = Ractor.receive)
