@@ -227,7 +227,8 @@ module AsyncFutures
               if (new_worker = maybe_spawn_worker)
                 synchronize do
                   @work_ports[port] = new_worker
-                  @pool.delete new_worker
+                  @pool.add new_worker
+                  @available_workers.push new_worker
                 end
               end
 
