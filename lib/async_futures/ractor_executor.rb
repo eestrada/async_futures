@@ -42,12 +42,37 @@ module AsyncFutures
     #
     # If the `move_result` keyword argument is `true`,
     # results from worker ractors will be moved instead of copied.
-    # Moving is faster, but less safe
-    # if the worker ractor keeps the values around for some reason.
-    def initialize(max_workers: nil, worker_name_prefix: nil, move_result: false) # rubocop:disable Metrics/AbcSize
+    # Moving is faster than copying,
+    # but less safe
+    # if the worker ractor keeps the values around for some reason
+    # (in a cache, for example).
+    # If you aren't doing something like caching inside workers
+    # you are probably safe to set this to `true`.
+    #
+    # If the `move_args` keyword argument is `true`,
+    # `args` and `kwargs` will be moved instead of copied
+    # from the submitting ractor to the worker ractors.
+    # Moving is faster than copying,
+    # but is even less safe than `move_result`
+    # because the submitting ractor
+    # is more likely to have kept references to the submitted values.
+    # You should only set this to `true`
+    # if you are absolutely certain that submitted values
+    # have no remaining references in the submitting ractor
+    # otherwise the submitting ractor will error when accessing them later.
+    def initialize(max_workers: nil, worker_name_prefix: nil, move_result: false, move_args: false) # rubocop:disable Metrics/AbcSize
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
       @worker_name_prefix = worker_name_prefix
+
+      # This value is passed into worker Ractors.
+      # If the caller passed something not shareable,
+      # it would error when we spawn workers later.
+      # Boolean values are always safely shareable
+      # and since we only care about the truthiness of this value
+      # double negation makes sense here.
       @move_result = !!move_result # rubocop:disable Style/DoubleNegation
+
+      @move_args = move_args
       @mutex = Thread::Mutex.new
       @tasks = Thread::Queue.new
       @available_workers = Thread::Queue.new
@@ -78,7 +103,18 @@ module AsyncFutures
       raise 'RactorExecutor instance is shutdown' if @tasks.closed?
 
       Future.new.tap do |future|
-        @tasks.push([future, block, args, kwargs])
+        # Attempt to make everything shareable upon submit
+        # so that if making shareable would raise an exception
+        # the caller can know immediately
+        # that a given value won't work.
+        # Otherwise the errors could easily get swallowed in a background thread
+        # and the caller would never know.
+        sh_block = Ractor.shareable_proc(&block)
+        sh_args = Ractor.make_shareable(args, copy: !@move_args)
+        sh_kwargs = Ractor.make_shareable(kwargs, copy: !@move_args)
+        ractor_task = [future, sh_block, sh_args, sh_kwargs]
+
+        @tasks.push(ractor_task)
         maybe_spawn_task_feeder
         maybe_spawn_result_feeder
         maybe_spawn_worker
@@ -160,14 +196,13 @@ module AsyncFutures
                 @worker_futures[next_worker].add(future)
               end
 
-              ractor_task = [
-                future.object_id,
-                Ractor.shareable_proc(block),
-                Ractor.make_shareable(args, copy: true),
-                Ractor.make_shareable(kwargs, copy: true),
-              ]
+              # `block`, `args`, and `kwargs` were already made shareable
+              # in the submitting thread.
+              # `object_id` is an `Integer`
+              # and thus is inherently immutable and shareable.
+              ractor_task = [future.object_id, block, args, kwargs]
 
-              next_worker.send(ractor_task, move: false)
+              next_worker.send(ractor_task, move: @move_args)
             rescue Exception => e # rubocop:disable Lint/RescueException
               synchronize do
                 @futures.delete(future.object_id)
@@ -176,6 +211,7 @@ module AsyncFutures
               future.set_exception(e)
             end
           else
+            # FIXME: I'm not even certain it is possible to trigger this branch.
             future.set_exception(RactorError.new('Worker queue closed'))
           end
         end
@@ -183,7 +219,7 @@ module AsyncFutures
         # once the task queue closes
         # that means the executor is shutdown.
         # We need to shutdown all workers until
-        # the worker queue gets shutdown by the `@results_feeder`.
+        # the worker queue gets closed by the `@results_feeder`.
         while (next_worker = @available_workers.pop)
           next_worker.send(:shutdown)
         end
