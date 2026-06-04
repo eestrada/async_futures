@@ -60,7 +60,14 @@ module AsyncFutures
     # if you are absolutely certain that submitted values
     # have no remaining references in the submitting ractor
     # otherwise the submitting ractor will error when accessing them later.
-    def initialize(max_workers: nil, worker_name_prefix: nil, move_result: false, move_args: false) # rubocop:disable Metrics/AbcSize
+    def initialize( # rubocop:disable Metrics/AbcSize,Metrics/ParameterLists
+      max_workers: nil,
+      worker_name_prefix: nil,
+      move_result: false,
+      move_args: false,
+      make_args_shareable: false,
+      copy_args: false
+    )
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
       @worker_name_prefix = worker_name_prefix
 
@@ -73,6 +80,8 @@ module AsyncFutures
       @move_result = !!move_result # rubocop:disable Style/DoubleNegation
 
       @move_args = move_args
+      @make_args_shareable = make_args_shareable
+      @copy_args = copy_args
       @mutex = Thread::Mutex.new
       @tasks = Thread::Queue.new
       @available_workers = Thread::Queue.new
@@ -110,8 +119,8 @@ module AsyncFutures
         # Otherwise the errors could easily get swallowed in a background thread
         # and the caller would never know.
         sh_block = Ractor.shareable_proc(&block)
-        sh_args = Ractor.make_shareable(args, copy: !@move_args)
-        sh_kwargs = Ractor.make_shareable(kwargs, copy: !@move_args)
+        sh_args = @make_args_shareable ? Ractor.make_shareable(args, copy: @copy_args) : args
+        sh_kwargs = @make_args_shareable ? Ractor.make_shareable(kwargs, copy: @copy_args) : kwargs
         ractor_task = [future, sh_block, sh_args, sh_kwargs]
 
         @tasks.push(ractor_task)
