@@ -68,6 +68,10 @@ module AsyncFutures
       make_args_shareable: false,
       copy_args: false
     )
+      if copy_args && !make_args_shareable
+        raise ArgumentError.new('`copy_args` cannot be true unless `make_args_shareable` is also true')
+      end
+
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
       @worker_name_prefix = worker_name_prefix
 
@@ -205,11 +209,12 @@ module AsyncFutures
                 @worker_futures[next_worker].add(future)
               end
 
-              # `block`, `args`, and `kwargs` were already made shareable
+              # `block` was already made shareable
               # in the submitting thread.
+              # `args` and `kwargs` _may_ have been made shareable already.
               # `object_id` is an `Integer`
               # and thus is inherently immutable and shareable.
-              ractor_task = [future.object_id, block, args, kwargs]
+              ractor_task = [future.object_id, block, args, kwargs].freeze
 
               next_worker.send(ractor_task, move: @move_args)
             rescue Exception => e # rubocop:disable Lint/RescueException
