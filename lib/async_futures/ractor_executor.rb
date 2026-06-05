@@ -180,12 +180,10 @@ module AsyncFutures
     end
 
     def new_worker_name
-      synchronize do
-        if @worker_name_prefix
-          "#{@worker_name_prefix}_#{@worker_count += 1}"
-        else
-          "#{self.class.name}_#{object_id}_worker_#{@worker_count += 1}"
-        end
+      if @worker_name_prefix
+        "#{@worker_name_prefix}_#{@worker_count += 1}"
+      else
+        "#{self.class.name}_#{object_id}_worker_#{@worker_count += 1}"
       end
     end
 
@@ -195,7 +193,7 @@ module AsyncFutures
 
     def spawn_task_feeder # rubocop:disable Metrics/AbcSize
       @task_feeder = Thread.new("task_feeder_#{object_id}") do |feeder_name|
-        feeder.name = feeder_name
+        Thread.current.name = feeder_name
 
         while (task = @tasks.pop)
           future, block, args, kwargs = task
@@ -246,7 +244,7 @@ module AsyncFutures
 
     def spawn_result_feeder # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
       @result_feeder = Thread.new("result_feeder_#{object_id}") do |feeder_name|
-        feeder.name = feeder_name
+        Thread.current.name = feeder_name
 
         loop do
           work_ports_dup = synchronize { @work_ports.dup }
