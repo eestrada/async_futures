@@ -87,6 +87,7 @@ module AsyncFutures
       @make_args_shareable = make_args_shareable
       @copy_args = copy_args
       @mutex = Thread::Mutex.new
+      @condition = Thread::ConditionVariable.new
       @tasks = Thread::Queue.new
       @available_workers = Thread::Queue.new
 
@@ -163,8 +164,20 @@ module AsyncFutures
 
     private
 
-    def synchronize(&)
-      @mutex.synchronize(&)
+    def synchronize(&block)
+      @mutex.synchronize do
+        block.call
+      ensure
+        @condition.broadcast
+      end
+    end
+
+    def wait_until(&block)
+      @condition.wait until block.call
+    end
+
+    def wait_while(&block)
+      @condition.wait while block.call
     end
 
     # Returns the current shutdown state,
@@ -247,8 +260,13 @@ module AsyncFutures
         Thread.current.name = feeder_name
 
         loop do
-          work_ports_dup = synchronize { @work_ports.dup }
-          break if work_ports_dup.empty?
+          break if synchronize { @work_ports.empty? && @pool.empty? && @tasks.closed? }
+
+          work_ports_dup = synchronize do
+            wait_while { @work_ports.empty? }
+
+            @work_ports.dup
+          end
 
           port, msg = Ractor.select(*work_ports_dup.keys)
 
