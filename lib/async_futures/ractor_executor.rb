@@ -93,7 +93,7 @@ module AsyncFutures
 
       # All private variables after this point
       # require synchronization to safely interact with.
-      @work_ports = @max_workers.times.to_h { [Ractor::Port.new, nil] }
+      @work_ports = {}
       @futures = {}
 
       # When Fibers are eventually supported,
@@ -276,13 +276,15 @@ module AsyncFutures
               @work_ports[port].tap do |worker|
                 @pool.delete worker
                 @work_ports.delete(port)
+                port.close
               end
             end
           when :aborted
             old_worker = synchronize do
               @work_ports[port].tap do |old_worker|
                 @pool.delete old_worker
-                @work_ports[port] = nil
+                @work_ports.delete(port)
+                port.close
               end
             end
 
@@ -333,10 +335,9 @@ module AsyncFutures
 
     # Always spawn a worker
     def spawn_worker # rubocop:disable Metrics/AbcSize
-      available_port = @work_ports.find { |_key, value| value.nil? }&.first
-      return unless available_port
+      new_port = Ractor::Port.new
 
-      worker = Ractor.new(available_port, @move_result, name: new_worker_name) do |results_port, move_result|
+      worker = Ractor.new(new_port, @move_result, name: new_worker_name) do |results_port, move_result|
         loop do
           case (task = Ractor.receive)
           when :shutdown
@@ -358,8 +359,8 @@ module AsyncFutures
       end
 
       worker.tap do |worker|
-        @work_ports[available_port] = worker
-        worker.monitor available_port
+        @work_ports[new_port] = worker
+        worker.monitor new_port
         @pool.add worker
         @available_workers.push worker
       end

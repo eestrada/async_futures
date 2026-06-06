@@ -23,7 +23,6 @@ group 'development' do
   gem 'debug'
   gem 'irb'
   gem 'rbs'
-  gem 'rdbg'
   gem 'ruby-lsp'
   gem 'solargraph'
   gem 'yard'

@@ -7,7 +7,7 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     skip 'skip everywhere for now'
 
     # The Ractor API was different before version 4.x of Ruby.
-    skip "'async_futures/ractor_executor' is not supported in Ruby version '#{RUBY_VERSION}'" if /^3\./ === RUBY_VERSION
+    skip "ractor_executor not supported in version '#{RUBY_VERSION}'" if RUBY_VERSION =~ /^3\./
 
     require 'async_futures/ractor_executor'
 
