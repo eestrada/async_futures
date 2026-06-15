@@ -4,8 +4,6 @@ require_relative 'minitest_helper'
 
 class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def setup
-    skip 'skip everywhere for now'
-
     # The Ractor API was different before version 4.x of Ruby.
     skip "ractor_executor not supported in version '#{RUBY_VERSION}'" if RUBY_VERSION =~ /^3\./
 
@@ -24,7 +22,7 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def teardown
-    @executor.shutdown(wait: true)
+    @executor&.shutdown(wait: true)
   end
 
   def test_submit_raises_argument_error_without_block
@@ -32,6 +30,9 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_submit_returns_a_future_object
+    # binding.break
+    skip 'skip everywhere for now'
+
     future1 = @executor.submit(1, 2, 3, 4, tell_me: 'that you love me more') do |*args, **kwargs|
       [args, kwargs]
     end
@@ -48,6 +49,7 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_submit_raises_returns_exceptional_future
+    skip 'skip everywhere for now'
     before_count = Thread.list.size
     future1 = @executor.submit(1, 2, 3, 4, tell_me: 'that you love me more') do |*args, **kwargs|
       raise "Some runtime error #{args} #{kwargs}"
@@ -61,10 +63,13 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_submit_concurrent_is_alias
+    skip 'skip everywhere for now'
+
     assert_equal @executor.method(:submit), @executor.method(:submit_concurrent)
   end
 
   def test_map
+    skip 'skip everywhere for now'
     enum = [1, 2, 3, 4]
     map_result = @executor.map(enum, &:to_s)
 
@@ -80,23 +85,29 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_shutdown_without_block
+    skip 'skip everywhere for now'
+
     assert_nil @executor.shutdown
   end
 
   def test_shutdown_with_block
+    skip 'skip everywhere for now'
+
     refute_nil(@executor.shutdown { true })
   end
 
   def test_submit_after_shutdown
+    skip 'skip everywhere for now'
     @executor.shutdown
 
     exc = assert_raises(RuntimeError) { @executor.submit { 'hello' } }
 
-    assert_match(/ThreadExecutor instance is shutdown/, exc.message)
+    assert_match(/RactorExecutor instance is shutdown/, exc.message)
   end
 
   def test_set_worker_name_prefix
-    new_executor = AsyncFutures::ThreadExecutor.new(worker_name_prefix: 'best')
+    skip 'skip everywhere for now'
+    new_executor = AsyncFutures::RactorExecutor.new(worker_name_prefix: 'best')
 
     future1 = new_executor.submit { Thread.current.name }
 
@@ -106,57 +117,56 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_only_one_worker # rubocop:disable Metrics/AbcSize
-    new_executor = AsyncFutures::ThreadExecutor.new(max_workers: 1)
+    skip 'skip everywhere for now'
+    AsyncFutures::RactorExecutor.new(max_workers: 1) do |new_executor|
+      before_count = Thread.list.size
+      future1 = new_executor.submit { sleep(0.01 * @sleep_mult) }
+      future2 = new_executor.submit { sleep(0.01 * @sleep_mult) }
+      future3 = new_executor.submit { sleep(0.01 * @sleep_mult) }
+      future1.result
+      future2.result
+      future3.result
+      after_count = Thread.list.size
 
-    before_count = Thread.list.size
-    future1 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-    future2 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-    future3 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-    future1.result
-    future2.result
-    future3.result
-    after_count = Thread.list.size
-
-    assert_operator after_count, :>, before_count
-    assert_equal before_count + 1, after_count
-  ensure
-    new_executor.shutdown
+      assert_operator after_count, :>, before_count
+      assert_equal before_count + 1, after_count
+    end
   end
 
   def test_cancel_futures_in_shutdown
-    new_executor = AsyncFutures::ThreadExecutor.new(max_workers: 1)
+    skip 'skip everywhere for now'
+    AsyncFutures::RactorExecutor.new(max_workers: 1) do |new_executor|
+      future1 = new_executor.submit { sleep(0.01 * @sleep_mult) }
+      future1.result
+      future2 = new_executor.submit { sleep(0.01 * @sleep_mult) }
+      future3 = new_executor.submit { sleep(0.01 * @sleep_mult) }
 
-    future1 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-    future1.result
-    future2 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-    future3 = new_executor.submit { sleep(0.01 * @sleep_mult) }
+      new_executor.shutdown(cancel_futures: true)
 
-    new_executor.shutdown(cancel_futures: true)
+      refute_predicate future1, :cancelled?
 
-    refute_predicate future1, :cancelled?
+      # Based on scheduling race conditions,
+      # future2 could be cancelled or not.
+      # We don't know when the worker thread will take control
+      # and pick up another task.
+      # However, because there is only one worker thread,
+      # we know it can't pick up the third submitted task
+      # while it is "working" on the second,
+      # so assuming that the machine running this test isn't dog slow,
+      # we should be able to cancel future3 before the sleep runs out.
+      #
+      # Thus why we only check that future2 is "done?".
+      # We don't know for certain it will be canceled
+      # or if the worker thread will pick it up.
+      assert_predicate future2, :done?
 
-    # Based on scheduling race conditions,
-    # future2 could be cancelled or not.
-    # We don't know when the worker thread will take control
-    # and pick up another task.
-    # However, because there is only one worker thread,
-    # we know it can't pick up the third submitted task
-    # while it is "working" on the second,
-    # so assuming that the machine running this test isn't dog slow,
-    # we should be able to cancel future3 before the sleep runs out.
-    #
-    # Thus why we only check that future2 is "done?".
-    # We don't know for certain it will be canceled
-    # or if the worker thread will pick it up.
-    assert_predicate future2, :done?
-
-    assert_predicate future3, :cancelled?
-  ensure
-    new_executor.shutdown
+      assert_predicate future3, :cancelled?
+    end
   end
 
   def test_cancel_futures_manually # rubocop:disable Metrics/AbcSize
-    AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |new_executor|
+    skip 'skip everywhere for now'
+    AsyncFutures::RactorExecutor.new(max_workers: 1).shutdown do |new_executor|
       future1 = new_executor.submit { sleep(0.01 * @sleep_mult) }
       future2 = new_executor.submit { sleep(0.01 * @sleep_mult) }
       future3 = new_executor.submit { sleep(0.01 * @sleep_mult) }
@@ -175,7 +185,8 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_reap_after # rubocop:disable Metrics/AbcSize
-    AsyncFutures::ThreadExecutor.new(max_workers: 1, reap_after: 0.03 * @sleep_mult).shutdown do |new_executor|
+    skip 'skip everywhere for now'
+    AsyncFutures::RactorExecutor.new(max_workers: 1, reap_after: 0.03 * @sleep_mult).shutdown do |new_executor|
       count1 = Thread.list.size
       future1 = new_executor.submit { sleep(0.01 * @sleep_mult) }
       future2 = new_executor.submit { sleep(0.01 * @sleep_mult) }
@@ -194,7 +205,8 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_no_reap_after # rubocop:disable Metrics/AbcSize
-    AsyncFutures::ThreadExecutor.new(max_workers: 1, reap_after: nil).shutdown do |new_executor|
+    skip 'skip everywhere for now'
+    AsyncFutures::RactorExecutor.new(max_workers: 1, reap_after: nil).shutdown do |new_executor|
       count1 = Thread.list.size
       future1 = new_executor.submit { sleep(0.01 * @sleep_mult) }
       future2 = new_executor.submit { sleep(0.01 * @sleep_mult) }
