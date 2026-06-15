@@ -47,10 +47,8 @@ class TestFiberExecutor < Minitest::Test
     assert_predicate future1, :done?
   end
 
-  def test_submit_concurrent_is_alias
-    skip 'not an alias for FiberExecutor'
-
-    assert_equal @executor.method(:submit), @executor.method(:submit_concurrent)
+  def test_submit_concurrent_is_not_alias
+    refute_equal @executor.method(:submit), @executor.method(:submit_concurrent)
   end
 
   def test_map
