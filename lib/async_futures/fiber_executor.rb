@@ -86,10 +86,9 @@ module AsyncFutures
 
       Future.new.tap do |future|
         @mutex.synchronize { @futures.add future }
+        future.set_running_or_notify_cancel
 
         Fiber.schedule do
-          break unless future.set_running_or_notify_cancel
-
           begin
             result = block.call(*args, **kwargs)
           rescue Exception => e # rubocop:disable Lint/RescueException
@@ -126,6 +125,13 @@ module AsyncFutures
       unless check_and_set_shutdown!
         futures_dup = @mutex.synchronize { @futures.dup } if wait || cancel_futures
         futures_dup.reject!(&:cancel) if cancel_futures
+
+        # This will work,
+        # even outside of a FiberScheduler
+        futures_dup.reject!(&:done?) if wait
+
+        # This will deadlock outside a FiberScheduler,
+        # however it shouldn't be an issue rejecting on `done?` culled everything already.
         futures_dup.reject!(&:join) if wait
         @mutex.synchronize { @futures.replace(@futures & futures_dup) } if wait || cancel_futures
       end

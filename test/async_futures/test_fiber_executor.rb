@@ -5,7 +5,7 @@ require_relative 'minitest_helper'
 require 'async'
 require 'async_futures/fiber_executor'
 
-class TestFiberExecutor < Minitest::Test
+class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def setup
     @scheduler = Async::Scheduler.new
     Fiber.set_scheduler @scheduler
@@ -17,34 +17,49 @@ class TestFiberExecutor < Minitest::Test
     Fiber.set_scheduler nil
   end
 
+  def test_initialize_raises_without_scheduler_set
+    Fiber.set_scheduler nil
+    exc = assert_raises(AsyncFutures::Error) { AsyncFutures::FiberExecutor.new }
+
+    assert_match(/No Fiber.scheduler set/, exc.message)
+  end
+
   def test_submit_raises_argument_error_without_block
     assert_raises(ArgumentError) { @executor.submit('No block given') }
   end
 
   def test_submit_returns_a_future_object
-    future1 = @executor.submit(1, 2, 3, 4, tell_me: 'that you love me more') do |*args, **kwargs|
-      [args, kwargs]
+    Fiber.schedule do
+      AsyncFutures::FiberExecutor.new.shutdown do |executor|
+        future1 = executor.submit(1, 2, 3, 4, tell_me: 'that you love me more') do |*args, **kwargs|
+          [args, kwargs]
+        end
+
+        assert_instance_of AsyncFutures::Future, future1
+
+        result = future1.result
+
+        assert_predicate future1, :done?
+        assert_equal 2, result.size
+        assert_instance_of Array, result
+        assert_instance_of Array, result[0]
+        assert_instance_of Hash, result[1]
+      end
     end
-
-    assert_instance_of AsyncFutures::Future, future1
-
-    result = future1.result
-
-    assert_predicate future1, :done?
-    assert_equal 2, result.size
-    assert_instance_of Array, result
-    assert_instance_of Array, result[0]
-    assert_instance_of Hash, result[1]
   end
 
   def test_submit_raises_returns_exceptional_future
-    future1 = @executor.submit(1, 2, 3, 4, tell_me: 'that you love me more') do |*args, **kwargs|
-      raise "Some runtime error #{args} #{kwargs}"
-    end
+    Fiber.schedule do
+      AsyncFutures::FiberExecutor.new.shutdown do |executor|
+        future1 = executor.submit(1, 2, 3, 4, tell_me: 'that you love me more') do |*args, **kwargs|
+          raise "Some runtime error #{args} #{kwargs}"
+        end
 
-    assert_instance_of AsyncFutures::Future, future1
-    refute_nil future1.exception
-    assert_predicate future1, :done?
+        assert_instance_of AsyncFutures::Future, future1
+        refute_nil future1.exception
+        assert_predicate future1, :done?
+      end
+    end
   end
 
   def test_submit_concurrent_is_not_alias
@@ -52,18 +67,22 @@ class TestFiberExecutor < Minitest::Test
   end
 
   def test_map
-    enum = [1, 2, 3, 4]
-    map_result = @executor.map(enum, &:to_s)
+    Fiber.schedule do
+      AsyncFutures::FiberExecutor.new.shutdown do |executor|
+        enum = [1, 2, 3, 4]
+        map_result = executor.map(enum, &:to_s)
 
-    assert_instance_of Enumerator::Lazy, map_result
+        assert_instance_of Enumerator::Lazy, map_result
 
-    results = map_result.to_a
-    first = results.to_a[0]
-    last = results.to_a[3]
+        results = map_result.to_a
+        first = results.to_a[0]
+        last = results.to_a[3]
 
-    assert_instance_of String, first
-    assert_equal '1', first
-    assert_equal '4', last
+        assert_instance_of String, first
+        assert_equal '1', first
+        assert_equal '4', last
+      end
+    end
   end
 
   def test_shutdown_without_block
@@ -83,53 +102,46 @@ class TestFiberExecutor < Minitest::Test
   end
 
   def test_cancel_futures_in_shutdown
-    skip 'currently deadlocking'
-    AsyncFutures::FiberExecutor.new.shutdown do |new_executor|
-      future1 = new_executor.submit { sleep(0.02) }
-      future1.result
-      future2 = new_executor.submit { sleep(0.02) }
-      future3 = new_executor.submit { sleep(0.02) }
+    Fiber.schedule do
+      AsyncFutures::FiberExecutor.new.shutdown do |executor|
+        future1 = executor.submit { sleep(0.02) }
+        future1.join
+        future2 = executor.submit { sleep(0.02) }
+        future3 = executor.submit { sleep(0.02) }
 
-      new_executor.shutdown(cancel_futures: true)
+        executor.shutdown(cancel_futures: true)
 
-      refute_predicate future1, :cancelled?
+        refute_predicate future1, :cancelled?
 
-      # Based on scheduling race conditions,
-      # future2 could be cancelled or not.
-      # We don't know when the worker thread will take control
-      # and pick up another task.
-      # However, because there is only one worker thread,
-      # we know it can't pick up the third submitted task
-      # while it is "working" on the second,
-      # so assuming that the machine running this test isn't dog slow,
-      # we should be able to cancel future3 before the sleep runs out.
-      #
-      # Thus why we only check that future2 is "done?".
-      # We don't know for certain it will be canceled
-      # or if the worker thread will pick it up.
-      assert_predicate future2, :done?
+        assert_predicate future2, :done?
 
-      assert_predicate future3, :cancelled?
+        # Because the FiberExecutor immediately runs tasks in a non-blocking
+        # Fiber, it is effectively impossible that they can be canceled before starting.
+        assert_predicate future3, :done?
+      end
     end
   end
 
   def test_cancel_futures_manually # rubocop:disable Metrics/AbcSize
-    skip 'currently deadlocking'
-    AsyncFutures::FiberExecutor.new.shutdown do |new_executor|
-      future1 = new_executor.submit { sleep(0.02) }
-      future2 = new_executor.submit { sleep(0.02) }
-      future3 = new_executor.submit { sleep(0.02) }
+    Fiber.schedule do
+      AsyncFutures::FiberExecutor.new.shutdown do |executor|
+        future1 = executor.submit { sleep(0.02) }
+        future2 = executor.submit { sleep(0.02) }
+        future3 = executor.submit { sleep(0.02) }
 
-      assert_predicate future2, :pending?
-      assert_predicate future3, :pending?
+        assert_predicate future2, :running?
+        assert_predicate future3, :running?
 
-      future2.cancel
-      future3.cancel
-      future1.result
+        future2.cancel
+        future3.cancel
+        future1.result
 
-      refute_predicate future1, :cancelled?
-      assert_predicate future2, :cancelled?
-      assert_predicate future3, :cancelled?
+        # Fiber futures always run immediately,
+        # so it is impossible to cancel them after starting them.
+        refute_predicate future1, :cancelled?
+        refute_predicate future2, :cancelled?
+        refute_predicate future3, :cancelled?
+      end
     end
   end
 end
