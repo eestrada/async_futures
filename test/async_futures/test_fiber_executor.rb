@@ -13,7 +13,7 @@ class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def teardown
-    @executor.shutdown(wait: true, cancel_futures: false)
+    @executor&.shutdown(wait: true, cancel_futures: false)
     Fiber.set_scheduler nil
   end
 
@@ -99,6 +99,34 @@ class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     exc = assert_raises(RuntimeError) { @executor.submit { 'hello' } }
 
     assert_match(/FiberExecutor instance is shutdown/, exc.message)
+  end
+
+  # This might not trigger if other threads are running.
+  #
+  # This prints some errors that can maybe be silenced.
+  # Or maybe the printout needs to be addressed.
+  # Just fix it somehow.
+  def test_busy_shutdown_outside_non_blocking_fiber_causes_deadlock
+    Fiber.schedule do
+      future1 = @executor.submit { sleep(0.02) }
+      future1.join
+      future2 = @executor.submit { sleep(0.02) }
+      future3 = @executor.submit { sleep(0.02) }
+
+      @executor.shutdown(cancel_futures: true)
+
+      refute_predicate future1, :cancelled?
+
+      assert_predicate future2, :done?
+
+      # Because the FiberExecutor immediately runs tasks in a non-blocking
+      # Fiber, it is effectively impossible that they can be canceled before starting.
+      assert_predicate future3, :done?
+    end
+
+    exc = assert_raises(Exception) { @executor.shutdown(wait: true) }
+
+    assert_match(/No live threads left. Deadlock\?/, exc.message)
   end
 
   def test_cancel_futures_in_shutdown
