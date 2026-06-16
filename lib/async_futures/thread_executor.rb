@@ -127,13 +127,16 @@ module AsyncFutures
     end
 
     # Always spawn a worker
-    def spawn_worker
+    def spawn_worker # rubocop:disable Metrics/AbcSize
       thread = Thread.new do
         Thread.current.name = new_worker_name
         while (task = @tasks.pop(timeout: @reap_after))
           tfuture, tblock, targs, tkwargs = task
 
           next unless tfuture.set_running_or_notify_cancel
+
+          tfuture.thread = Thread.current
+          tfuture.fiber = Fiber.current
 
           begin
             result = tblock.call(*targs, **tkwargs)
