@@ -10,6 +10,18 @@ module AsyncFutures
   #
   # Heavily inspired by Python's `concurrent.futures.Future` class.
   class Future # rubocop:disable Metrics/ClassLength
+    # Attribute to hold the Thread that owns the work for this Future.
+    # Used to detect deadlocks.
+    # Not for direct use.
+    # Should only be used by Future and Executor implementations.
+    attr_accessor :thread
+
+    # Attribute to hold the Fiber that owns the work for this Future.
+    # Used to detect deadlocks.
+    # Not for direct use.
+    # Should only be used by Future and Executor implementations.
+    attr_accessor :fiber
+
     def initialize
       @mutex = Thread::Mutex.new
       @condition = Thread::ConditionVariable.new
@@ -227,9 +239,14 @@ module AsyncFutures
 
     private
 
-    def private_join(timeout, &block)
+    def private_join(timeout, &block) # rubocop:disable Metrics/AbcSize
       Timeout.timeout(timeout) do
         @mutex.synchronize do
+          unless lockless_done?
+            raise DeadlockError.new(self) if Fiber.blocking? && Thread.current.equal?(thread)
+            raise DeadlockError.new(self) if Fiber.current.equal?(fiber)
+          end
+
           @condition.wait(@mutex) until lockless_done?
           block.call
         end

@@ -80,7 +80,7 @@ module AsyncFutures
     # Asynchronously submit a task for execution.
     #
     # See `AsyncFutures::Executor.submit` method for full documentation.
-    def submit(*args, **kwargs, &block)
+    def submit(*args, **kwargs, &block) # rubocop:disable Metrics/AbcSize
       raise ArgumentError.new('No block given') unless block
       raise 'FiberExecutor instance is shutdown' if @mutex.synchronize { @is_shutdown }
 
@@ -88,7 +88,10 @@ module AsyncFutures
         @mutex.synchronize { @futures.add future }
         future.set_running_or_notify_cancel
 
+        future.thread = Thread.current
+
         Fiber.schedule do
+          future.fiber = Fiber.current
           begin
             result = block.call(*args, **kwargs)
           rescue Exception => e # rubocop:disable Lint/RescueException

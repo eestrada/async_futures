@@ -101,23 +101,13 @@ class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     assert_match(/FiberExecutor instance is shutdown/, exc.message)
   end
 
-  # This might not trigger if other threads are running.
-  #
-  # This prints some errors that can maybe be silenced.
-  # Or maybe the printout needs to be addressed.
-  # Just fix it somehow.
   def test_non_blocking_submit_with_blocking_shutdown
     Fiber.schedule do
-      AsyncFutures::FiberExecutor.new.shutdown do |executor|
-        executor.submit { sleep(0.02) }
-
-        Fiber.blocking do
-          exc = assert_raises(Exception) { executor.shutdown(wait: true) }
-
-          assert_match(/No live threads left. Deadlock\?/, exc.message)
-        end
-      end
+      @executor.submit { sleep(0.02) }
     end
+    exc = assert_raises(AsyncFutures::DeadlockError) { @executor.shutdown(wait: true) }
+
+    assert_match(/^Future would deadlock: #<AsyncFutures::Future:\w+>$/, exc.message)
   end
 
   def test_cancel_futures_in_shutdown
