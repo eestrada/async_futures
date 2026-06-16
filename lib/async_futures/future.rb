@@ -79,15 +79,11 @@ module AsyncFutures
     # If the call raised an exception, this method will raise the same
     # exception.
     def result(timeout = nil)
-      Timeout.timeout(timeout) do
-        @mutex.synchronize do
-          @condition.wait(@mutex) until lockless_done?
-          raise CancelledError if lockless_cancelled?
+      private_join(timeout) do
+        raise CancelledError if lockless_cancelled?
+        raise @exception if @exception
 
-          raise @exception if @exception
-
-          @result
-        end
+        @result
       end
     end
 
@@ -102,13 +98,10 @@ module AsyncFutures
     #
     # If the call completed without raising, `nil` is returned.
     def exception(timeout = nil)
-      Timeout.timeout(timeout) do
-        @mutex.synchronize do
-          @condition.wait(@mutex) until lockless_done?
-          raise CancelledError if lockless_cancelled?
+      private_join(timeout) do
+        raise CancelledError if lockless_cancelled?
 
-          @exception
-        end
+        @exception
       end
     end
 
@@ -131,11 +124,8 @@ module AsyncFutures
     def join(timeout = nil)
       return (done? && self) || nil if timeout&.zero?
 
-      Timeout.timeout(timeout) do
-        @mutex.synchronize do
-          @condition.wait(@mutex) until lockless_done?
-          self
-        end
+      private_join(timeout) do
+        self
       end
     rescue Timeout::Error
       nil
@@ -236,6 +226,15 @@ module AsyncFutures
     FINISHED = :FINISHED
 
     private
+
+    def private_join(timeout, &block)
+      Timeout.timeout(timeout) do
+        @mutex.synchronize do
+          @condition.wait(@mutex) until lockless_done?
+          block.call
+        end
+      end
+    end
 
     def invoke_callbacks
       @done_callbacks.each do |callback|
