@@ -5,6 +5,84 @@ require_relative 'minitest_helper'
 require 'async_futures/future'
 
 class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
+  def test_as_completed # rubocop:disable Metrics/AbcSize
+    future1 = AsyncFutures::Future.new
+    future2 = AsyncFutures::Future.new
+    future3 = AsyncFutures::Future.new
+
+    all_fs = [future1, future2, future3]
+    dup_fs = [future1, future2, future3, future1]
+
+    all_fs.each(&:set_running_or_notify_cancel)
+    all_fs.each_with_index { |f, i| f.set_result(i) }
+
+    completed = AsyncFutures::Future.as_completed(dup_fs)
+
+    completed_ary = completed.to_a
+
+    refute_equal dup_fs.size, completed_ary.size
+    assert_equal all_fs.size, completed_ary.size
+    assert_equal all_fs.map(&:result), completed_ary.map(&:result)
+  end
+
+  def test_as_completed_follows_completion_order # rubocop:disable Metrics/AbcSize
+    future1 = AsyncFutures::Future.new
+    future2 = AsyncFutures::Future.new
+    future3 = AsyncFutures::Future.new
+
+    all_fs = [future1, future2, future3]
+    dup_fs = [future1, future2, future3, future1]
+
+    all_fs.each(&:set_running_or_notify_cancel)
+
+    completed = AsyncFutures::Future.as_completed(dup_fs)
+
+    all_fs.each_with_index.reverse_each { |f, i| f.set_result(i) }
+
+    completed_ary = completed.to_a
+
+    refute_equal all_fs.map(&:result), completed_ary.map(&:result)
+    assert_equal all_fs.reverse_each.map(&:result), completed_ary.map(&:result)
+  end
+
+  def test_as_completed_with_timeout # rubocop:disable Metrics/AbcSize
+    future1 = AsyncFutures::Future.new
+    future2 = AsyncFutures::Future.new
+    future3 = AsyncFutures::Future.new
+
+    all_fs = [future1, future2, future3]
+    dup_fs = [future1, future2, future3, future1]
+
+    all_fs.each(&:set_running_or_notify_cancel)
+    all_fs.each_with_index { |f, i| f.set_result(i) }
+
+    completed = AsyncFutures::Future.as_completed(dup_fs, 0.1)
+
+    completed_ary = completed.to_a
+
+    refute_equal dup_fs.size, completed_ary.size
+    assert_equal all_fs.size, completed_ary.size
+    assert_equal all_fs.map(&:result), completed_ary.map(&:result)
+  end
+
+  def test_as_completed_with_failing_timeout
+    future1 = AsyncFutures::Future.new
+    future2 = AsyncFutures::Future.new
+    future3 = AsyncFutures::Future.new
+
+    all_fs = [future1, future2, future3]
+    dup_fs = [future1, future2, future3, future1]
+
+    all_fs.each(&:set_running_or_notify_cancel)
+    all_fs.each_with_index { |f, i| f.set_result(i) }
+
+    completed = AsyncFutures::Future.as_completed(dup_fs, 0.01)
+
+    sleep 0.02
+
+    assert_raises(Timeout::Error) { completed.to_a }
+  end
+
   def test_new_future_should_be_pending
     future1 = AsyncFutures::Future.new
 
@@ -230,8 +308,8 @@ class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
     future1.fiber = Fiber.current
     future1.thread = Thread.current
 
-    assert_equal Fiber.current, future1.fiber
-    assert_equal Thread.current, future1.thread
+    assert_same Fiber.current, future1.fiber
+    assert_same Thread.current, future1.thread
   end
 
   def test_finished_predicate
@@ -264,7 +342,7 @@ class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
 
     future1.set_result(true)
 
-    assert_equal future1, future1.join(0.01)
+    assert_same future1, future1.join(0.01)
   end
 
   def test_join_timeout_zero_returns_nil

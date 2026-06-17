@@ -10,6 +10,63 @@ module AsyncFutures
   #
   # Heavily inspired by Python's `concurrent.futures.Future` class.
   class Future # rubocop:disable Metrics/ClassLength
+    class << self
+      # Returns an Enumerator over the Future instances
+      # (possibly created by different Executor instances)
+      # given by `futures` that yields futures as they complete
+      # (finished or cancelled futures).
+      # Any futures given by `futures` that are duplicated will be returned once.
+      # Any futures that completed before `as_completed()` is called will be yielded first.
+      # The returned Enumerator raises a `Timeout::Error` if `each` or `next()` is called
+      # and the result isn’t available after `timeout` seconds from the original call to `as_completed()`.
+      # `timeout` can be an int or float.
+      # If `timeout` is not specified or `nil`,
+      # there is no limit to the wait time.
+      def as_completed(futures, timeout = nil) # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
+        clock_timeout = Time.now.to_f + timeout if timeout
+        mtx = Thread::Mutex.new
+        queue = Thread::Queue.new
+
+        fs_ary = futures.to_a
+        fs_set = fs_ary.to_set
+        fs_cnt = fs_set.size
+        fs_set.clear
+
+        fs_ary.each do |future|
+          future.add_done_callback do |done_future|
+            mtx.synchronize do
+              unless fs_set.include? done_future
+                fs_set.add done_future
+                queue << done_future
+                fs_cnt -= 1
+
+                queue.close if fs_cnt.zero?
+              end
+            end
+          end
+        end
+
+        Enumerator.new do |yielder|
+          if timeout
+            local_timeout = clock_timeout - Time.now.to_f
+            raise Timeout::Error unless local_timeout.positive?
+
+            Timeout.timeout(local_timeout) do
+              while (done_future = queue.pop)
+                yielder << done_future
+              end
+            end
+          else
+            while (done_future = queue.pop)
+              yielder << done_future
+            end
+          end
+        end
+      end
+    end
+
+    # Create a new Future instance in a pending state.
+    # Should generally only be called by Executor implementations.
     def initialize
       @mutex = Thread::Mutex.new
       @condition = Thread::ConditionVariable.new
