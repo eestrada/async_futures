@@ -220,4 +220,64 @@ class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
 
     assert_same false, value1
   end
+
+  def test_test_fiber_and_future_attrs
+    future1 = AsyncFutures::Future.new
+
+    assert_nil future1.fiber
+    assert_nil future1.thread
+
+    future1.fiber = Fiber.current
+    future1.thread = Thread.current
+
+    assert_equal Fiber.current, future1.fiber
+    assert_equal Thread.current, future1.thread
+  end
+
+  def test_finished_predicate
+    future1 = AsyncFutures::Future.new
+
+    refute_predicate future1, :finished?
+
+    future1.set_running_or_notify_cancel
+    future1.set_result(true)
+
+    assert_predicate future1, :finished?
+  end
+
+  def test_join_deadlock_on_same_fiber
+    future1 = AsyncFutures::Future.new
+    future1.set_running_or_notify_cancel
+
+    future1.fiber = Fiber.current
+
+    exc = assert_raises(AsyncFutures::DeadlockError) { future1.join }
+
+    assert_match(/^Future would deadlock: #<AsyncFutures::Future:\w+>$/, exc.message)
+  end
+
+  def test_join_deadlock_on_same_fiber_wont_raise_on_done
+    future1 = AsyncFutures::Future.new
+    future1.set_running_or_notify_cancel
+
+    future1.fiber = Fiber.current
+
+    future1.set_result(true)
+
+    assert_equal future1, future1.join(0.01)
+  end
+
+  def test_join_timeout_zero_returns_nil
+    future1 = AsyncFutures::Future.new
+    future1.set_running_or_notify_cancel
+
+    assert_nil future1.join(0)
+  end
+
+  def test_join_timeout_non_zero_returns_nil
+    future1 = AsyncFutures::Future.new
+    future1.set_running_or_notify_cancel
+
+    assert_nil future1.join(0.01)
+  end
 end
