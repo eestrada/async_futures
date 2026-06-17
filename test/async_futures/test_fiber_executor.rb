@@ -66,6 +66,20 @@ class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     refute_equal @executor.method(:submit), @executor.method(:submit_concurrent)
   end
 
+  def test_submit_concurrent_raises_by_default
+    assert_raises(AsyncFutures::NoConcurrencyError) { @executor.submit_concurrent { 'hello world' } }
+  end
+
+  def test_treat_as_concurrent
+    Fiber.schedule do
+      AsyncFutures::FiberExecutor.new(treat_as_concurrent: true).shutdown do |executor|
+        future1 = executor.submit_concurrent { 'hello concurrency!' }
+
+        assert_equal 'hello concurrency!', future1.result
+      end
+    end
+  end
+
   def test_map
     Fiber.schedule do
       AsyncFutures::FiberExecutor.new.shutdown do |executor|
@@ -91,6 +105,21 @@ class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
   def test_shutdown_with_block
     refute_nil(@executor.shutdown { true })
+  end
+
+  def test_shutdown_without_wait
+    Fiber.schedule do
+      before = Time.now
+      AsyncFutures::FiberExecutor.new.shutdown(wait: false) do |executor|
+        executor.submit { sleep 0.02 }
+        sleep 0.01
+      end
+      after = Time.now
+
+      # If submitted task should sleep for 0.02 seconds,
+      # then not waiting for shutdown should take less time than that.
+      refute_operator 0.02, :<, (after.to_f - before.to_f)
+    end
   end
 
   def test_submit_after_shutdown
