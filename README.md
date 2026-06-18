@@ -8,7 +8,7 @@ It's API (mostly) follows the same one as the Python
 There are some differences to make it more Ruby-ish where it makes sense
 (e.g. taking blocks instead of callable parameters, etc).
 
-It has a different name for two reasons:
+It has a different name for several reasons:
 
 1. The [concurrent-ruby](https://rubygems.org/gems/concurrent-ruby) library
    already exists and is very popular.
@@ -25,6 +25,9 @@ It has a different name for two reasons:
    This is still logically correct based on Loris Cro's definition of asynchrony:
    the possibility (but not requirement) for tasks to run out of order
    and still be correct.
+3. The more straightforward gem names [future](https://rubygems.org/gems/future)
+   and [futures](https://rubygems.org/gems/futures)
+   were ready taken.
 
 This Gem has multiple `Executor` implementations for creating `Future` instances
 backed by `Ractor`, `Thread`, and `Fiber` concurrency primitives.
@@ -48,15 +51,17 @@ and doesn't require concurrency for correctness).
 
 ### Why wouldn't I just use `concurrent-ruby` for concurrency?
 
-`concurrent-ruby` is a good library and you should consider using it. It is
-mainly focused on `Thread` primitives and thread safety. If that is all you
-want/need, then you should use it.
+`concurrent-ruby` is a good library.
+It is mainly focused on `Thread` primitives and thread safety.
+If that is all you want/need, then you should use it.
 
-The focus of this library is different. This is meant to be a uniform (albeit
-simple) interface around _all_ concurrency/async primitives offered by Ruby. It
-should even be possible to use this library to create `Executor` implementations
-around things like event based libraries that were never intended to be used in
-this way.
+The focus of this library is different.
+This is meant to be a uniform
+(albeit simple)
+interface around _all_ concurrency/async primitives offered by Ruby.
+It should even be possible to use the `Future` class
+for things like event based libraries
+that were not intended to be used in this way.
 
 ## Installation
 
