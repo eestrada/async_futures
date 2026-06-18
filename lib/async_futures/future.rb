@@ -29,7 +29,8 @@ module AsyncFutures
 
         fs_ary = futures.to_a
         fs_set = fs_ary.to_set
-        fs_cnt = fs_set.size
+        fs_sze = fs_set.size
+        fs_cnt = fs_sze
         fs_set.clear
 
         fs_ary.each do |future|
@@ -46,7 +47,7 @@ module AsyncFutures
           end
         end
 
-        Enumerator.new do |yielder|
+        Enumerator.new(fs_sze) do |yielder|
           if timeout
             local_timeout = clock_timeout - Time.now.to_f
             raise Timeout::Error unless local_timeout.positive?

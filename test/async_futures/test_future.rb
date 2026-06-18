@@ -83,6 +83,23 @@ class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
     assert_raises(Timeout::Error) { completed.to_a }
   end
 
+  def test_as_completed_size
+    future1 = AsyncFutures::Future.new
+    future2 = AsyncFutures::Future.new
+    future3 = AsyncFutures::Future.new
+
+    all_fs = [future1, future2, future3]
+    dup_fs = [future1, future2, future3, future1]
+
+    all_fs.each(&:set_running_or_notify_cancel)
+    all_fs.each_with_index { |f, i| f.set_result(i) }
+
+    completed = AsyncFutures::Future.as_completed(dup_fs)
+
+    assert_instance_of Enumerator, completed
+    assert_equal all_fs.size, completed.size
+  end
+
   def test_new_future_should_be_pending
     future1 = AsyncFutures::Future.new
 
