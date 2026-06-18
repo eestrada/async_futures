@@ -83,6 +83,20 @@ class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
     assert_raises(Timeout::Error) { completed.to_a }
   end
 
+  def test_as_completed_with_failing_timeout2
+    future1 = AsyncFutures::Future.new
+    future2 = AsyncFutures::Future.new
+    future3 = AsyncFutures::Future.new
+
+    all_fs = [future1, future2, future3]
+    dup_fs = [future1, future2, future3, future1]
+
+    all_fs.each(&:set_running_or_notify_cancel)
+    all_fs.each_with_index { |f, i| f.set_result(i) }
+
+    assert_raises(Timeout::Error) { AsyncFutures::Future.as_completed(dup_fs, -0.01) }
+  end
+
   def test_as_completed_size
     future1 = AsyncFutures::Future.new
     future2 = AsyncFutures::Future.new

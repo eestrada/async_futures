@@ -33,27 +33,30 @@ module AsyncFutures
         fs_cnt = fs_sze
         fs_set.clear
 
-        # FIXME: this should be wrapped in a timeout too,
-        # since callbacks can be invoked immediately.
-        fs_ary.each do |future|
-          future.add_done_callback do |done_future|
-            mtx.synchronize do
-              unless fs_set.include? done_future
-                fs_set.add done_future
-                queue.push done_future
-                fs_cnt -= 1
+        cb_timeout = timeout && (clock_timeout - Time.now.to_f)
+        raise Timeout::Error unless cb_timeout.nil? || cb_timeout.positive?
 
-                queue.close if fs_cnt.zero?
+        Timeout.timeout(cb_timeout) do
+          fs_ary.each do |future|
+            future.add_done_callback do |done_future|
+              mtx.synchronize do
+                unless fs_set.include? done_future
+                  fs_set.add done_future
+                  queue.push done_future
+                  fs_cnt -= 1
+
+                  queue.close if fs_cnt.zero?
+                end
               end
             end
           end
         end
 
         Enumerator.new(fs_sze) do |yielder|
-          local_timeout = timeout && (clock_timeout - Time.now.to_f)
-          raise Timeout::Error unless local_timeout.nil? || local_timeout.positive?
+          enum_timeout = timeout && (clock_timeout - Time.now.to_f)
+          raise Timeout::Error unless enum_timeout.nil? || enum_timeout.positive?
 
-          Timeout.timeout(local_timeout) do
+          Timeout.timeout(enum_timeout) do
             while (done_future = queue.pop)
               yielder.yield done_future
             end
