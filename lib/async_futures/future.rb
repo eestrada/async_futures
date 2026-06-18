@@ -11,6 +11,111 @@ module AsyncFutures
   # Heavily inspired by Python's `concurrent.futures.Future` class.
   class Future # rubocop:disable Metrics/ClassLength
     class << self
+      # The `Future.wait` method will return when any future finishes or is cancelled.
+      FIRST_COMPLETED = :FIRST_COMPLETED
+
+      # The `Future.wait` method will return when any future finishes by raising an exception.
+      # If no future raises an exception then it is equivalent to ALL_COMPLETED.
+      FIRST_EXCEPTION = :FIRST_EXCEPTION
+
+      # The `Future.wait` method will return when all futures finish or are cancelled.
+      ALL_COMPLETED = :ALL_COMPLETED
+
+      # Wait for the `Future` instances
+      # (possibly created by different Executor instances)
+      # given by `futures` to complete.
+      # Duplicate futures given to `futures` are removed
+      # and will be returned only once.
+      # Returns a `Hash` of sets.
+      # The first set,
+      # keyed to `:done`,
+      # contains the futures that completed
+      # (finished or cancelled futures)
+      # before the wait completed.
+      # The second set,
+      # keyed to `:not_done`,
+      # contains the futures that did not complete
+      # (pending or running futures).
+      #
+      # `timeout` can be used to control the maximum number of seconds to wait before returning.
+      # `timeout` can be an int or float.
+      # If `timeout` is not specified or `nil`,
+      # there is no limit to the wait time.
+      #
+      # `return_when` indicates when this function should return.
+      # See constant descriptions for details.
+      def wait(futures, timeout = nil, return_when = ALL_COMPLETED) # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
+        clock_timeout = Time.now.to_f + timeout if timeout
+        mtx = Thread::Mutex.new
+        queue = Thread::Queue.new
+
+        fs_ary = futures.to_a.uniq
+        fs_cnt = fs_ary.size
+
+        done_set = Set.new
+        not_done_set = Set.new(fs_ary)
+
+        return { done: done_set, not_done: not_done_set } if fs_ary.empty?
+
+        begin
+          cb_timeout = timeout && (clock_timeout - Time.now.to_f)
+          raise Timeout::Error unless cb_timeout.nil? || cb_timeout.positive?
+
+          Timeout.timeout(cb_timeout) do
+            case return_when
+            when FIRST_COMPLETED
+              fs_ary.each do |future|
+                future.add_done_callback do |ftr|
+                  mtx.synchronize do
+                    queue.push(ftr)
+                    queue.close
+                  rescue ClosedQueueError
+                    # Do nothing
+                  end
+                end
+              end
+            when FIRST_EXCEPTION
+              fs_ary.each do |future|
+                future.add_done_callback do |ftr|
+                  mtx.synchronize do
+                    queue.push(ftr)
+                    queue.close if !ftr.cancelled? && ftr.exception
+                  rescue ClosedQueueError
+                    # Do nothing
+                  end
+                end
+              end
+            when ALL_COMPLETED
+              fs_ary.each do |future|
+                future.add_done_callback do |ftr|
+                  queue.push(ftr)
+
+                  mtx.synchronize do
+                    fs_cnt -= 1
+                    queue.close if fs_cnt.zero?
+                  end
+                rescue ClosedQueueError
+                  # Do nothing
+                end
+              end
+            else
+              raise ArgumentError.new("Unknown 'return_when' value #{return_when}")
+            end
+
+            while (dn_ftr = queue.pop)
+              done_set.add(dn_ftr)
+            end
+          end
+        rescue Timeout::Error
+          queue.close
+          while (dn_ftr = queue.pop(timeout: 0))
+            done_set.add(dn_ftr)
+          end
+        end
+
+        { done: done_set, not_done: not_done_set.difference(done_set) }
+      end
+
       # Returns an Enumerator over the Future instances
       # (possibly created by different Executor instances)
       # given by `futures` that yields futures as they complete
@@ -281,21 +386,21 @@ module AsyncFutures
       invoke_callbacks
     end
 
-    FIRST_COMPLETED = :FIRST_COMPLETED
-    FIRST_EXCEPTION = :FIRST_EXCEPTION
-    ALL_COMPLETED = :ALL_COMPLETED
-    AS_COMPLETED = :_AS_COMPLETED
+    private
 
     # Possible future states (for internal use by the futures package).
 
     # Not yet started.
     PENDING = :PENDING
+    private_constant :PENDING
 
     # Has a worker doing work to complete it.
     RUNNING = :RUNNING
+    private_constant :RUNNING
 
     # The future was cancelled.
     CANCELLED = :CANCELLED
+    private_constant :CANCELLED
 
     # `_Waiter.add_cancelled()` was called by a worker.
     # FIXME: I'm 99% certain that the waiter and notify stuff has to do with
@@ -303,11 +408,11 @@ module AsyncFutures
     # probably still be needed for Ractors and Ports, but I don't understand it
     # well enough to add it yet. It will need to wait for another day.
     CANCELLED_AND_NOTIFIED = :CANCELLED_AND_NOTIFIED
+    private_constant :CANCELLED_AND_NOTIFIED
 
     # Finished running, via either success or exception.
     FINISHED = :FINISHED
-
-    private
+    private_constant :FINISHED
 
     def private_join(timeout, &block)
       Timeout.timeout(timeout) do
