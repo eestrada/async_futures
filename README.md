@@ -2,11 +2,14 @@
 
 ## Launch asynchronous tasks
 
-This library is heavily based on Python's `concurrent.futures` module.
+This library is heavily inspired by Python's `concurrent.futures` module.
 It's API (mostly) follows the same one as the Python
 [library](https://docs.python.org/3.13/library/concurrent.futures.html).
 There are some differences to make it more Ruby-ish where it makes sense
 (e.g. taking blocks instead of callable parameters, etc).
+There are also separate submission methods
+for concurrent versus non-concurrent tasks
+for reasons explained later.
 
 It has a different name for several reasons:
 
@@ -18,12 +21,12 @@ It has a different name for several reasons:
    only asynchrony.
    (See Loris Cro's excellent article
    [Asynchrony is not Concurrency](https://kristoff.it/blog/asynchrony-is-not-concurrency/)
-   to understand the difference).
+   to understand the way these terms are used in this README).
    Consequently, this library implements (and supports) `Executor` implementations
    that conform to an asynchronous interface,
    but can in reality run immediately in synchronous modes.
    This is still logically correct based on Loris Cro's definition of asynchrony:
-   the possibility (but not requirement) for tasks to run out of order
+   the possibility for tasks to run out of order
    and still be correct.
 3. The more straightforward gem names [future](https://rubygems.org/gems/future)
    and [futures](https://rubygems.org/gems/futures)
@@ -59,9 +62,13 @@ The focus of this library is different.
 This is meant to be a uniform
 (albeit simple)
 interface around _all_ concurrency/async primitives offered by Ruby.
-It should even be possible to use the `Future` class
-for things like event based libraries
+You can indicate async versus concurrent intent
+using the `submit` versus `submit_concurrent` methods.
+It should also be possible to use the `Future` class
+for things like event based libraries (i.e. async)
 that were not intended to be used in this way.
+Thus the `Executor` interface is not required
+for the use of async futures.
 
 ## Installation
 
