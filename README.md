@@ -28,6 +28,9 @@ It has a different name for several reasons:
    This is still logically correct based on Loris Cro's definition of asynchrony:
    the possibility for tasks to run out of order
    and still be correct.
+   This also means tasks run strictly in order
+   (i.e. synchronously)
+   are also correct.
 3. The more straightforward gem names [future](https://rubygems.org/gems/future)
    and [futures](https://rubygems.org/gems/futures)
    were already taken.
@@ -63,7 +66,8 @@ This is meant to be a uniform
 (albeit simple)
 interface around _all_ concurrency/async primitives offered by Ruby.
 You can indicate async versus concurrent intent
-using the `submit` versus `submit_concurrent` methods.
+using the `submit` versus `submit_concurrent` methods
+on `Executor` implementations.
 It should also be possible to use the `Future` class
 for things like event based libraries (i.e. async)
 that were not intended to be used in this way.
