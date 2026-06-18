@@ -2,11 +2,19 @@
 
 require_relative 'minitest_helper'
 
-require 'async'
 require 'async_futures/fiber_executor'
 
 class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def setup
+    case RUBY_ENGINE
+    when /jruby/
+      skip 'jruby stalls indefinitly'
+    when /truffleruby/
+      skip 'truffleruby does not support the Fiber::Scheduler interface yet'
+    else
+      require 'async'
+    end
+
     @scheduler = Async::Scheduler.new
     Fiber.set_scheduler @scheduler
     @executor = AsyncFutures::FiberExecutor.new

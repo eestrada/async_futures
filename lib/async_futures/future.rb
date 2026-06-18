@@ -27,11 +27,9 @@ module AsyncFutures
         mtx = Thread::Mutex.new
         queue = Thread::Queue.new
 
-        fs_ary = futures.to_a
-        fs_set = fs_ary.to_set
-        fs_sze = fs_set.size
+        fs_ary = futures.to_a.uniq
+        fs_sze = fs_ary.size
         fs_cnt = fs_sze
-        fs_set.clear
 
         cb_timeout = timeout && (clock_timeout - Time.now.to_f)
         raise Timeout::Error unless cb_timeout.nil? || cb_timeout.positive?
@@ -39,14 +37,11 @@ module AsyncFutures
         Timeout.timeout(cb_timeout) do
           fs_ary.each do |future|
             future.add_done_callback do |done_future|
-              mtx.synchronize do
-                unless fs_set.include? done_future
-                  fs_set.add done_future
-                  queue.push done_future
-                  fs_cnt -= 1
+              queue.push done_future
 
-                  queue.close if fs_cnt.zero?
-                end
+              mtx.synchronize do
+                fs_cnt -= 1
+                queue.close if fs_cnt.zero?
               end
             end
           end
