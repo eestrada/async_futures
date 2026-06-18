@@ -30,7 +30,7 @@ It has a different name for several reasons:
    and still be correct.
 3. The more straightforward gem names [future](https://rubygems.org/gems/future)
    and [futures](https://rubygems.org/gems/futures)
-   were ready taken.
+   were already taken.
 
 This Gem has multiple `Executor` implementations for creating `Future` instances
 backed by `Ractor`, `Thread`, and `Fiber` concurrency primitives.
