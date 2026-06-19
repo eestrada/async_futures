@@ -5,6 +5,72 @@ require_relative 'minitest_helper'
 require 'async_futures/future'
 
 class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
+  def test_wait # rubocop:disable Metrics/AbcSize
+    future1 = AsyncFutures::Future.new
+    future2 = AsyncFutures::Future.new
+    future3 = AsyncFutures::Future.new
+
+    all_fs = [future1, future2, future3]
+    dup_fs = [future1, future2, future3, future1]
+
+    all_fs.each(&:set_running_or_notify_cancel)
+    all_fs.each_with_index { |f, i| f.set_result(i) }
+
+    completed_hsh = AsyncFutures::Future.wait(dup_fs)
+
+    assert_instance_of Hash, completed_hsh
+
+    assert_includes completed_hsh, :done
+    assert_includes completed_hsh, :not_done
+
+    assert_instance_of Set, completed_hsh[:done]
+    assert_instance_of Set, completed_hsh[:not_done]
+
+    assert_equal all_fs.size, completed_hsh[:done].size
+    assert_equal 0, completed_hsh[:not_done].size
+
+    assert_equal all_fs.to_set, completed_hsh[:done]
+  end
+
+  def test_wait_empty
+    completed_hsh = AsyncFutures::Future.wait([])
+
+    assert_instance_of Hash, completed_hsh
+
+    assert_includes completed_hsh, :done
+    assert_includes completed_hsh, :not_done
+
+    assert_equal 0, completed_hsh[:done].size
+    assert_equal 0, completed_hsh[:not_done].size
+  end
+
+  def test_wait_partial_completion_with_timeout # rubocop:disable Metrics/AbcSize
+    future1 = AsyncFutures::Future.new
+    future2 = AsyncFutures::Future.new
+    future3 = AsyncFutures::Future.new
+
+    all_fs = [future1, future2, future3]
+    dup_fs = [future1, future2, future3, future1]
+
+    all_fs.each(&:set_running_or_notify_cancel)
+    all_fs.take(2).each_with_index { |f, i| f.set_result(i) }
+
+    completed_hsh = AsyncFutures::Future.wait(dup_fs, 0.01)
+
+    assert_instance_of Hash, completed_hsh
+
+    assert_includes completed_hsh, :done
+    assert_includes completed_hsh, :not_done
+
+    assert_instance_of Set, completed_hsh[:done]
+    assert_instance_of Set, completed_hsh[:not_done]
+
+    assert_equal 2, completed_hsh[:done].size
+    assert_equal 1, completed_hsh[:not_done].size
+
+    assert_equal all_fs.take(2).to_set, completed_hsh[:done]
+  end
+
   def test_as_completed # rubocop:disable Metrics/AbcSize
     future1 = AsyncFutures::Future.new
     future2 = AsyncFutures::Future.new
