@@ -57,51 +57,51 @@ module AsyncFutures
 
         return { done: done_set, not_done: not_done_set } if fs_ary.empty?
 
+        case return_when
+        when FIRST_COMPLETED
+          fs_ary.each do |future|
+            future.add_done_callback do |ftr|
+              mtx.synchronize do
+                queue.push(ftr)
+                queue.close
+              rescue ClosedQueueError
+                # Do nothing
+              end
+            end
+          end
+        when FIRST_EXCEPTION
+          fs_ary.each do |future|
+            future.add_done_callback do |ftr|
+              mtx.synchronize do
+                queue.push(ftr)
+                queue.close if !ftr.cancelled? && ftr.exception
+              rescue ClosedQueueError
+                # Do nothing
+              end
+            end
+          end
+        when ALL_COMPLETED
+          fs_ary.each do |future|
+            future.add_done_callback do |ftr|
+              queue.push(ftr)
+
+              mtx.synchronize do
+                fs_cnt -= 1
+                queue.close if fs_cnt.zero?
+              end
+            rescue ClosedQueueError
+              # Do nothing
+            end
+          end
+        else
+          raise ArgumentError.new("Unknown 'return_when' value #{return_when}")
+        end
+
         begin
           cb_timeout = timeout && (clock_timeout - Time.now.to_f)
           raise Timeout::Error unless cb_timeout.nil? || cb_timeout.positive?
 
           Timeout.timeout(cb_timeout) do
-            case return_when
-            when FIRST_COMPLETED
-              fs_ary.each do |future|
-                future.add_done_callback do |ftr|
-                  mtx.synchronize do
-                    queue.push(ftr)
-                    queue.close
-                  rescue ClosedQueueError
-                    # Do nothing
-                  end
-                end
-              end
-            when FIRST_EXCEPTION
-              fs_ary.each do |future|
-                future.add_done_callback do |ftr|
-                  mtx.synchronize do
-                    queue.push(ftr)
-                    queue.close if !ftr.cancelled? && ftr.exception
-                  rescue ClosedQueueError
-                    # Do nothing
-                  end
-                end
-              end
-            when ALL_COMPLETED
-              fs_ary.each do |future|
-                future.add_done_callback do |ftr|
-                  queue.push(ftr)
-
-                  mtx.synchronize do
-                    fs_cnt -= 1
-                    queue.close if fs_cnt.zero?
-                  end
-                rescue ClosedQueueError
-                  # Do nothing
-                end
-              end
-            else
-              raise ArgumentError.new("Unknown 'return_when' value #{return_when}")
-            end
-
             while (dn_ftr = queue.pop)
               done_set.add(dn_ftr)
             end
