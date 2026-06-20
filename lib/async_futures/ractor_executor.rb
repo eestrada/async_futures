@@ -72,6 +72,8 @@ module AsyncFutures
         raise ArgumentError.new('`copy_args` cannot be true unless `make_args_shareable` is also true')
       end
 
+      AsyncFutures.logger&.debug('RactorExecutor') { "starting RactorExecutor #{object_id}" }
+
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
       @worker_name_prefix = worker_name_prefix
 
@@ -103,16 +105,24 @@ module AsyncFutures
       @results_ports = {}
       @pool = Set.new
       @worker_count = 0
+
       @task_feeder = nil
       @result_feeder = nil
 
+      # The inter-thread communication between these is necessary for shutdown,
+      # so even if nothing is submitted, we still need these to exist for now.
+      maybe_spawn_task_feeder
+      maybe_spawn_result_feeder
+
       at_exit { shutdown(wait: false) }
+      AsyncFutures.logger&.debug('RactorExecutor') { "started RactorExecutor #{object_id}" }
     end
 
     # Asynchronously submit a task for execution.
     #
     # See `AsyncFutures::Executor.submit` method for full documentation.
-    def submit(*args, **kwargs, &block)
+    def submit(*args, **kwargs, &block) # rubocop:disable Metrics/AbcSize
+      AsyncFutures.logger&.debug('RactorExecutor') { "Submitting to RactorExecutor #{object_id}" }
       raise ArgumentError.new('No block given') unless block
 
       Future.new.tap do |future|
@@ -128,11 +138,13 @@ module AsyncFutures
         ractor_task = [future, sh_block, sh_args, sh_kwargs]
 
         @tasks.push(ractor_task)
+        maybe_spawn_worker
         maybe_spawn_task_feeder
         maybe_spawn_result_feeder
-        maybe_spawn_worker
+
+        AsyncFutures.logger&.debug('RactorExecutor') { "Submitted to RactorExecutor #{object_id}" }
       rescue ClosedQueueError
-        raise 'ThreadExecutor instance is shutdown'
+        raise 'RactorExecutor instance is shutdown'
       end
     end
 
@@ -154,12 +166,7 @@ module AsyncFutures
           end
         end
 
-        if wait
-          synchronize { @pool.dup }.each do |thread|
-            thread.join
-            synchronize { @pool.delete(thread) }
-          end
-        end
+        synchronize { wait_until { @available_workers.closed? && @available_workers.empty? } } if wait
       end
     end
 
@@ -174,11 +181,11 @@ module AsyncFutures
     end
 
     def wait_until(&block)
-      @condition.wait until block.call
+      @condition.wait(@mutex) until block.call
     end
 
     def wait_while(&block)
-      @condition.wait while block.call
+      @condition.wait(@mutex) while block.call
     end
 
     # Returns the current shutdown state,
@@ -205,18 +212,26 @@ module AsyncFutures
       synchronize { spawn_task_feeder unless @task_feeder }
     end
 
-    def spawn_task_feeder # rubocop:disable Metrics/AbcSize
+    def spawn_task_feeder # rubocop:disable Metrics/AbcSize,Metrics/PerceivedComplexity,Metrics/CyclomaticComplexity
       @task_feeder = Thread.new("task_feeder_#{object_id}") do |feeder_name|
         Thread.current.name = feeder_name
+
+        AsyncFutures.logger&.debug('RactorExecutor') { "started feeder #{Thread.current.name}" }
 
         while (task = @tasks.pop)
           future, block, args, kwargs = task
 
+          AsyncFutures.logger&.debug('RactorExecutor') { "Attempting task #{task}" }
+
           next unless future.set_running_or_notify_cancel
 
+          AsyncFutures.logger&.debug('RactorExecutor') { "set running task #{task}" }
+
           if (next_worker = @available_workers.pop)
+            AsyncFutures.logger&.debug('RactorExecutor') { "retrieved next worker #{next_worker}" }
             begin
               synchronize do
+                AsyncFutures.logger&.debug('RactorExecutor') { "saving future #{future.object_id}: #{future}" }
                 @futures[future.object_id] = future # rubocop:disable Lint/HashCompareByIdentity
                 @worker_futures[next_worker].add(future)
               end
@@ -228,8 +243,10 @@ module AsyncFutures
               # and thus is inherently immutable and shareable.
               ractor_task = [future.object_id, block, args, kwargs].freeze
 
+              AsyncFutures.logger&.debug('RactorExecutor') { "sending task to next worker #{next_worker}" }
               next_worker.send(ractor_task, move: @move_args)
             rescue Exception => e # rubocop:disable Lint/RescueException
+              AsyncFutures.logger&.debug('RactorExecutor') { "sending task to ractor worker failed #{e}" }
               synchronize do
                 @futures.delete(future.object_id)
                 @worker_futures[next_worker].delete(future)
@@ -242,12 +259,25 @@ module AsyncFutures
           end
         end
 
+        AsyncFutures.logger&.debug('RactorExecutor') { 'sending shutdown signal to workers' }
         # once the task queue closes
         # that means the executor is shutdown.
         # We need to shutdown all workers until
         # the worker queue gets closed by the `@results_feeder`.
         while (next_worker = @available_workers.pop)
+          AsyncFutures.logger&.debug('RactorExecutor') { "sending shutdown signal to worker #{next_worker}" }
           next_worker.send(:shutdown)
+        end
+        AsyncFutures.logger&.debug('RactorExecutor') { 'shutdown signal sent to all workers' }
+      ensure
+        synchronize do
+          AsyncFutures.logger&.debug('RactorExecutor') { 'Clearing @task_feeder reference' }
+          if @task_feeder.equal? Thread.current
+            @task_feeder = nil
+            AsyncFutures.logger&.debug('RactorExecutor') { '@task_feeder reference set to nil' }
+          else
+            AsyncFutures.logger&.debug('RactorExecutor') { '@task_feeder reference did not point to current thread' }
+          end
         end
       end
     end
@@ -260,21 +290,36 @@ module AsyncFutures
       @result_feeder = Thread.new("result_feeder_#{object_id}") do |feeder_name|
         Thread.current.name = feeder_name
 
+        AsyncFutures.logger&.debug('RactorExecutor') { "started feeder #{Thread.current.name}" }
         loop do
-          break if synchronize { @work_ports.empty? && @pool.empty? && @tasks.closed? }
-
-          work_ports_dup = synchronize do
-            wait_while { @work_ports.empty? }
-
-            @work_ports.dup
+          if synchronize { @work_ports.empty? && @pool.empty? && @tasks.closed? && @tasks.empty? }
+            AsyncFutures.logger&.debug('RactorExecutor') { "breaking out of result_feeder loop #{Thread.current}" }
+            break
+          else
+            AsyncFutures.logger&.debug('RactorExecutor') { "not breaking out of result_feeder loop #{Thread.current}" }
           end
 
-          port, msg = Ractor.select(*work_ports_dup.keys)
+          work_ports_keys = synchronize do
+            AsyncFutures.logger&.debug('RactorExecutor') { "Wait while work ports is empty #{@work_ports}" }
+            wait_while { @work_ports.empty? }
+            AsyncFutures.logger&.debug('RactorExecutor') do
+              "work ports not empty, thus getting Array of keys #{@work_ports}"
+            end
+
+            @work_ports.keys
+          end
+
+          AsyncFutures.logger&.debug('RactorExecutor') do
+            "waiting until a ractor worker has results to feed #{work_ports_keys}"
+          end
+          port, msg = Ractor.select(*work_ports_keys)
+          AsyncFutures.logger&.debug('RactorExecutor') { "Received a message from worker ractor #{msg}" }
 
           case msg
           when :exited
             synchronize do
               @work_ports[port].tap do |worker|
+                AsyncFutures.logger&.debug('RactorExecutor') { "Cleaning up ractor that exited normally #{worker}" }
                 @pool.delete worker
                 @work_ports.delete(port)
                 port.close
@@ -283,6 +328,9 @@ module AsyncFutures
           when :aborted
             old_worker = synchronize do
               @work_ports[port].tap do |old_worker|
+                AsyncFutures.logger&.debug('RactorExecutor') do
+                  "Cleaning up ractor that exited abnormally #{old_worker}"
+                end
                 @pool.delete old_worker
                 @work_ports.delete(port)
                 port.close
@@ -291,23 +339,32 @@ module AsyncFutures
 
             AsyncFutures.logger&.error('RactorExecutor') { "Ractor failed unexpectedly: #{old_worker}" }
 
+            AsyncFutures.logger&.debug('RactorExecutor') { "maybe spawn new worker to replace #{old_worker}" }
             maybe_spawn_worker
 
+            AsyncFutures.logger&.debug('RactorExecutor') do
+              "attempting to cancel futures associated with old worker #{old_worker}"
+            end
             futures = synchronize { @worker_futures.delete(old_worker) || Set.new }
             begin
               old_worker.join
             rescue Exception => e # rubocop:disable Lint/RescueException
+              AsyncFutures.logger&.debug('RactorExecutor') { "old worker raised exception #{e}" }
               futures.each { |f| f.set_exception(e) }
             end
           when Array
             future_id, type, value = msg
 
+            AsyncFutures.logger&.debug('RactorExecutor') { "Regular message received from worker  #{msg}" }
+
             future = synchronize { @futures[future_id] }
 
             case type
             when :exception
+              AsyncFutures.logger&.debug('RactorExecutor') { "message exception #{value}" }
               future.set_exception(value)
             when :result
+              AsyncFutures.logger&.debug('RactorExecutor') { "message result #{value}" }
               future.set_result(value)
             else
               exc_msg = "Unknown result type #{type}"
@@ -315,6 +372,7 @@ module AsyncFutures
               future.set_exception(exception)
               AsyncFutures.logger&.error('RactorExecutor') { exc_msg }
             end
+            synchronize { @available_workers.push @work_ports[port] }
           else
             exc_msg = "Unknown result symbol #{msg}"
             exception = RactorExecutor.new(exc_msg)
@@ -324,7 +382,11 @@ module AsyncFutures
           end
         end
 
-        @available_workers.close
+        AsyncFutures.logger&.debug('RactorExecutor') do
+          "closing the available_workers queue. It should be not closed? #{@available_workers.closed?}"
+        end
+        # We synchronize here so that we broadcast the condition afterward.
+        synchronize { @available_workers.close }
       end
     end
 
