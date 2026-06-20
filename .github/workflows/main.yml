@@ -25,7 +25,7 @@ jobs:
           - '4.0'
           - 'jruby'
           - 'truffleruby'
-          # - 'truffleruby+graalvm'
+          - 'truffleruby+graalvm'
 
     steps:
       - uses: actions/checkout@v6
