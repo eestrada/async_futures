@@ -121,10 +121,10 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def test_cancel_futures_in_shutdown
     new_executor = AsyncFutures::ThreadExecutor.new(max_workers: 1)
 
-    future1 = new_executor.submit { sleep(0.01 * @sleep_mult) }
+    future1 = new_executor.submit { sleep(0.1 * @sleep_mult) }
     future1.result
-    future2 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-    future3 = new_executor.submit { sleep(0.01 * @sleep_mult) }
+    future2 = new_executor.submit { sleep(0.1 * @sleep_mult) }
+    future3 = new_executor.submit { sleep(0.1 * @sleep_mult) }
 
     new_executor.shutdown(cancel_futures: true)
 
