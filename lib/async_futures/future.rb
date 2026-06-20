@@ -10,17 +10,17 @@ module AsyncFutures
   #
   # Heavily inspired by Python's `concurrent.futures.Future` class.
   class Future # rubocop:disable Metrics/ClassLength
+    # The `Future.wait` method will return when any future finishes or is cancelled.
+    FIRST_COMPLETED = :FIRST_COMPLETED
+
+    # The `Future.wait` method will return when any future finishes by raising an exception.
+    # If no future raises an exception then it is equivalent to ALL_COMPLETED.
+    FIRST_EXCEPTION = :FIRST_EXCEPTION
+
+    # The `Future.wait` method will return when all futures finish or are cancelled.
+    ALL_COMPLETED = :ALL_COMPLETED
+
     class << self
-      # The `Future.wait` method will return when any future finishes or is cancelled.
-      FIRST_COMPLETED = :FIRST_COMPLETED
-
-      # The `Future.wait` method will return when any future finishes by raising an exception.
-      # If no future raises an exception then it is equivalent to ALL_COMPLETED.
-      FIRST_EXCEPTION = :FIRST_EXCEPTION
-
-      # The `Future.wait` method will return when all futures finish or are cancelled.
-      ALL_COMPLETED = :ALL_COMPLETED
-
       # Wait for the `Future` instances
       # (possibly created by different Executor instances)
       # given by `futures` to complete.
