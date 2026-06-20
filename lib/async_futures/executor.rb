@@ -129,14 +129,10 @@ module AsyncFutures
 
       futures = []
       begin
-        if timeout
-          local_timeout = clock_timeout - Time.now.to_f
-          raise Timeout::Error unless local_timeout.positive?
+        local_timeout = timeout && (clock_timeout - Time.now.to_f)
+        raise Timeout::Error unless timeout.nil? || local_timeout.positive?
 
-          Timeout.timeout(local_timeout) do
-            enumerable.each { |*args| futures << submit(*args, &block) }
-          end
-        else
+        Timeout.timeout(local_timeout) do
           enumerable.each { |*args| futures << submit(*args, &block) }
         end
       rescue Exception => e # rubocop:disable Lint/RescueException
@@ -145,15 +141,10 @@ module AsyncFutures
       end
 
       futures.each_with_index.lazy.map do |future, index|
-        # if timeout && !future.done?
-        if timeout
-          local_timeout = clock_timeout - Time.now.to_f
-          raise Timeout::Error unless local_timeout.positive?
+        local_timeout = timeout && (clock_timeout - Time.now.to_f)
+        raise Timeout::Error unless timeout.nil? || local_timeout.positive?
 
-          Timeout.timeout(local_timeout) { future.result }
-        else
-          future.result
-        end
+        Timeout.timeout(local_timeout) { future.result }
       rescue Exception => e # rubocop:disable Lint/RescueException
         begin
           raise e
