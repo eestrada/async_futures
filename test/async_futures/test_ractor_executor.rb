@@ -14,9 +14,7 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     @executor = AsyncFutures::RactorExecutor.new
 
     @sleep_mult = case RUBY_ENGINE
-                  when /jruby/
-                    2
-                  when /truffleruby/
+                  when /jruby/, /truffleruby/
                     4
                   else
                     1
