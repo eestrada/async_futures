@@ -94,7 +94,7 @@ module AsyncFutures
             end
           end
         else
-          raise ArgumentError.new("Unknown 'return_when' value #{return_when}")
+          raise ArgumentError.new("Unknown 'return_when' value '#{return_when}'")
         end
 
         begin
@@ -113,6 +113,7 @@ module AsyncFutures
           end
         end
 
+        done_set.merge(fs_ary.lazy.filter(&:done?))
         { done: done_set, not_done: not_done_set.difference(done_set) }
       end
 

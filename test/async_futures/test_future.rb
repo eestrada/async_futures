@@ -55,7 +55,7 @@ class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
 
     exc = assert_raises(ArgumentError) { AsyncFutures::Future.wait(fs, nil, :bad_value) }
 
-    assert_match(/^Unknown 'return_when' value bad_value$/, exc.message)
+    assert_match(/^Unknown 'return_when' value 'bad_value'$/, exc.message)
   end
 
   def test_wait_partial_completion_with_timeout_short # rubocop:disable Metrics/AbcSize
@@ -163,11 +163,10 @@ class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
     assert_instance_of Set, completed_hsh[:done]
     assert_instance_of Set, completed_hsh[:not_done]
 
-    # TODO: determine if this should include all completed or just the first completed.
-    assert_equal 1, completed_hsh[:done].size
-    assert_equal 2, completed_hsh[:not_done].size
+    assert_equal 2, completed_hsh[:done].size
+    assert_equal 1, completed_hsh[:not_done].size
 
-    assert_equal [future2].to_set, completed_hsh[:done]
+    assert_equal [future2, future3].to_set, completed_hsh[:done]
   end
 
   def test_wait_first_exception # rubocop:disable Metrics/AbcSize
@@ -227,11 +226,10 @@ class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
     assert_instance_of Set, completed_hsh[:done]
     assert_instance_of Set, completed_hsh[:not_done]
 
-    # TODO: determine if this should include all completed or just the first exception.
-    assert_equal 2, completed_hsh[:done].size
-    assert_equal 1, completed_hsh[:not_done].size
+    assert_equal 3, completed_hsh[:done].size
+    assert_equal 0, completed_hsh[:not_done].size
 
-    assert_equal [future1, future2].to_set, completed_hsh[:done]
+    assert_equal all_fs.to_set, completed_hsh[:done]
   end
 
   def test_as_completed # rubocop:disable Metrics/AbcSize
