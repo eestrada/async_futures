@@ -545,9 +545,9 @@ class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
     future1 = AsyncFutures::Future.new
 
     refute_predicate future1, :cancelled?
-    assert_same true, future1.cancel
+    assert_equal true, future1.cancel # rubocop:disable Minitest/AssertTruthy
     assert_predicate future1, :cancelled?
-    assert_same true, future1.cancel
+    assert_equal true, future1.cancel # rubocop:disable Minitest/AssertTruthy
     assert_predicate future1, :cancelled?
   end
 
@@ -559,7 +559,7 @@ class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
     future1 = AsyncFutures::Future.new
     future1.set_running_or_notify_cancel
     raised_exc = assert_raises(AsyncFutures::InvalidStateError) { future1.set_running_or_notify_cancel }
-    assert_same 'Future in unexpected state', raised_exc.message
+    assert_equal 'Future in unexpected state', raised_exc.message
 
     @mock.verify
   ensure
@@ -570,7 +570,7 @@ class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
     future1 = AsyncFutures::Future.new
     future1.set_running_or_notify_cancel
     raised_exc = assert_raises(AsyncFutures::InvalidStateError) { future1.set_running_or_notify_cancel }
-    assert_same 'Future in unexpected state', raised_exc.message
+    assert_equal 'Future in unexpected state', raised_exc.message
   end
 
   def test_calling_set_running_after_cancel_returns_false
@@ -578,7 +578,7 @@ class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
     future1.cancel
     value1 = future1.set_running_or_notify_cancel
 
-    assert_same false, value1
+    assert_equal false, value1 # rubocop:disable Minitest/RefuteFalse
   end
 
   def test_test_fiber_and_future_attrs
