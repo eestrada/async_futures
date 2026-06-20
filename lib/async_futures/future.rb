@@ -174,7 +174,6 @@ module AsyncFutures
       @state = PENDING
       @result = nil
       @exception = nil
-      @waiters = []
       @done_callbacks = []
       @thread = nil
       @fiber = nil
@@ -403,11 +402,12 @@ module AsyncFutures
     CANCELLED = :CANCELLED
     private_constant :CANCELLED
 
-    # `_Waiter.add_cancelled()` was called by a worker.
-    # FIXME: I'm 99% certain that the waiter and notify stuff has to do with
-    # Python's implementation of Process/Pipe based parallelism. This will
-    # probably still be needed for Ractors and Ports, but I don't understand it
-    # well enough to add it yet. It will need to wait for another day.
+    # Future has been cancelled
+    # **and** the worker assigned to complete the future has been notified.
+    # of the fact that the future has been cancelled.
+    # Only set by calling `set_running_or_notify_cancel` on a cancelled future.
+    # This prevents future from be set to running or cancelled more than once.
+    # Instead it raises an InvalidStateError if this is the state.
     CANCELLED_AND_NOTIFIED = :CANCELLED_AND_NOTIFIED
     private_constant :CANCELLED_AND_NOTIFIED
 

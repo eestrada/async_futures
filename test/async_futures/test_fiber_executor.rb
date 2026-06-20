@@ -123,9 +123,28 @@ class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
       end
       after = Time.now
 
+      shutdown_time = (after.to_f - before.to_f)
+
       # If submitted task should sleep for 0.02 seconds,
       # then not waiting for shutdown should take less time than that.
-      refute_operator 0.02, :<, (after.to_f - before.to_f)
+      assert_operator shutdown_time, :<, 0.02
+    end
+  end
+
+  def test_shutdown_with_wait
+    Fiber.schedule do
+      before = Time.now
+      AsyncFutures::FiberExecutor.new.shutdown(wait: true) do |executor|
+        executor.submit { sleep 0.02 }
+        sleep 0.01
+      end
+      after = Time.now
+
+      shutdown_time = (after.to_f - before.to_f)
+
+      # If submitted task should sleep for 0.02 seconds,
+      # then waiting for shutdown should take more time than that.
+      assert_operator shutdown_time, :>, 0.02
     end
   end
 

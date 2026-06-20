@@ -82,13 +82,18 @@ module AsyncFutures
     # See `AsyncFutures::Executor.submit` method for full documentation.
     def submit(*args, **kwargs, &block) # rubocop:disable Metrics/AbcSize
       raise ArgumentError.new('No block given') unless block
-      raise 'FiberExecutor instance is shutdown' if @mutex.synchronize { @is_shutdown }
 
       Future.new.tap do |future|
-        @mutex.synchronize { @futures.add future }
-        future.set_running_or_notify_cancel
+        @mutex.synchronize do
+          raise 'FiberExecutor instance is shutdown' if @is_shutdown
 
-        future.thread = Thread.current
+          @futures.add future
+
+          # FibersExecutor tasks are run immediately,
+          # thus their futures can't be cancelled.
+          future.set_running_or_notify_cancel
+          future.thread = Thread.current
+        end
 
         Fiber.schedule do
           future.fiber = Fiber.current
@@ -129,12 +134,7 @@ module AsyncFutures
         futures_dup = @mutex.synchronize { @futures.dup } if wait || cancel_futures
         futures_dup.reject!(&:cancel) if cancel_futures
 
-        # This will work,
-        # even outside of a FiberScheduler
-        futures_dup.reject!(&:done?) if wait
-
         # This will deadlock outside a FiberScheduler,
-        # however it shouldn't be an issue rejecting on `done?` culled everything already.
         futures_dup.reject!(&:join) if wait
         @mutex.synchronize { @futures.replace(@futures & futures_dup) } if wait || cancel_futures
       end
