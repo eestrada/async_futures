@@ -11,7 +11,6 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
     require 'async_futures/ractor_executor'
     require 'logger'
-    require 'debug'
 
     @executor = AsyncFutures::RactorExecutor.new
 
