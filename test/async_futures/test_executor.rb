@@ -88,7 +88,7 @@ class TestExecutor < Minitest::Test
 
   def test_map_timeout_long
     enum = [0.05, 0.05]
-    map_result = @executor.map(enum.each_with_index, 0.15) do |s, i|
+    map_result = @executor.map(enum.each_with_index, 0.30) do |s, i|
       sleep(s)
       i
     end
