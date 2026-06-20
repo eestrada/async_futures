@@ -114,7 +114,6 @@ module AsyncFutures
     # See `AsyncFutures::Executor.submit` method for full documentation.
     def submit(*args, **kwargs, &block)
       raise ArgumentError.new('No block given') unless block
-      raise 'RactorExecutor instance is shutdown' if @tasks.closed?
 
       Future.new.tap do |future|
         # Attempt to make everything shareable upon submit
@@ -132,6 +131,8 @@ module AsyncFutures
         maybe_spawn_task_feeder
         maybe_spawn_result_feeder
         maybe_spawn_worker
+      rescue ClosedQueueError
+        raise 'ThreadExecutor instance is shutdown'
       end
     end
 

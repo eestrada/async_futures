@@ -57,11 +57,12 @@ module AsyncFutures
     # See `AsyncFutures::Executor.submit` method for full documentation.
     def submit(*args, **kwargs, &block)
       raise ArgumentError.new('No block given') unless block
-      raise 'ThreadExecutor instance is shutdown' if @tasks.closed?
 
       Future.new.tap do |future|
         @tasks.push([future, block, args, kwargs])
         maybe_spawn_worker
+      rescue ClosedQueueError
+        raise 'ThreadExecutor instance is shutdown'
       end
     end
 

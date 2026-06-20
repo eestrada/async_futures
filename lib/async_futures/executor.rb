@@ -96,14 +96,14 @@ module AsyncFutures
     # there is no guarantee that they will be cancelled
     # before being picked up, run, and completed.
     #
-    # If `timeout_sec` is given and not `nil`,
+    # If `timeout` is given and not `nil`,
     # then execution will raise `Timeout::Error`
-    # if more than `timeout_sec` seconds elapses.
+    # if more than `timeout` seconds elapses.
     # The elapsed time includes both the initial submission of tasks
     # *and* the enumeration of `Future` results from the returned `Enumerator::Lazy`.
     #
     # Keep in mind that an `Enumerator::Lazy` can be enumerated over more than once
-    # *and* that the `timeout_sec` value will be evaluated each time it is enumerated
+    # *and* that the `timeout` value will be evaluated each time it is enumerated
     # *and* that the timeout value will be calculated from the time of first submission.
     # Thus, enumeration could succeed on the first enumeration,
     # but fail with a `Timeout::Error` on a subsequent enumeration.
@@ -111,25 +111,25 @@ module AsyncFutures
     # you should save the result of the first enumeration in an `Array` (or similar)
     # using something like `to_a` on the returned `Enumerator::Lazy` instance.
     # If you immediately enumerate the returned `Enumerator::Lazy` only once
-    # or you have passed no `timeout_sec` value,
+    # or you have passed no `timeout` value,
     # then none of this is a concern.
     #
-    # Negative `timeout_sec` values are allowed,
+    # Negative `timeout` values are allowed,
     # but they just raise `Timeout::Error` immediately.
     #
     # Do ***not*** call this method with an infinite `Enumerable`
-    # and no `timeout_sec` value:
+    # and no `timeout` value:
     # the first thing this method does is force it into a finite collection of futures.
     # An infinite `Enumerable` forced into a finite collection
     # will run forever and eventually eat up all memory.
-    def map(enumerable, timeout_sec = nil, &block) # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
-      timeout_sec = nil if timeout_sec&.zero?
+    def map(enumerable, timeout = nil, &block) # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
+      timeout = nil if timeout&.zero?
 
-      clock_timeout = Time.now.to_f + timeout_sec if timeout_sec
+      clock_timeout = Time.now.to_f + timeout if timeout
 
       futures = []
       begin
-        if timeout_sec
+        if timeout
           local_timeout = clock_timeout - Time.now.to_f
           raise Timeout::Error unless local_timeout.positive?
 
@@ -145,8 +145,8 @@ module AsyncFutures
       end
 
       futures.each_with_index.lazy.map do |future, index|
-        # if timeout_sec && !future.done?
-        if timeout_sec
+        # if timeout && !future.done?
+        if timeout
           local_timeout = clock_timeout - Time.now.to_f
           raise Timeout::Error unless local_timeout.positive?
 
