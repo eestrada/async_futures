@@ -23,9 +23,10 @@ module AsyncFutures
     class << self
       # Wait for the `Future` instances
       # (possibly created by different Executor instances)
-      # given by `futures` to complete.
+      # given by `Enumerable` object `futures` to complete.
       # Duplicate futures given to `futures` are removed
       # and will be returned only once.
+      #
       # Returns a `Hash` of sets.
       # The first set,
       # keyed to `:done`,
@@ -41,6 +42,12 @@ module AsyncFutures
       # `timeout` can be an int or float.
       # If `timeout` is not specified or `nil`,
       # there is no limit to the wait time.
+      #
+      # A negative value for `timeout` is allowed
+      # and will just return immediately.
+      # Already completed futures are still included in this case.
+      # In this circumstance,
+      # all `return_when` values behave identically.
       #
       # `return_when` indicates when this function should return.
       # See constant descriptions for details.
@@ -117,14 +124,22 @@ module AsyncFutures
         { done: done_set, not_done: not_done_set.difference(done_set) }
       end
 
-      # Returns an Enumerator over the Future instances
-      # (possibly created by different Executor instances)
-      # given by `futures` that yields futures as they complete
+      # Returns an `Enumerator` over the `Future` instances
+      # (possibly created by different `Executor` instances)
+      # given by the `Enumerable` object `futures`
+      # that yields futures as they complete
       # (finished or cancelled futures).
+      #
+      # The returned `Enumerator` can only be enumerated over once.
+      # Subsequent enumeration attempts will raise `RuntimeError`.
+      #
       # Any futures given by `futures` that are duplicated will be returned once.
+      #
       # Any futures that completed before `as_completed()` is called will be yielded first.
-      # The returned Enumerator raises a `Timeout::Error` if `each` or `next()` is called
-      # and the result isn’t available after `timeout` seconds from the original call to `as_completed()`.
+      #
+      # The returned `Enumerator` raises a `Timeout::Error` if `each` or `next()` is called
+      # and the result isn’t available after `timeout` seconds
+      # from the original call to `as_completed()`.
       # `timeout` can be an int or float.
       # If `timeout` is not specified or `nil`,
       # there is no limit to the wait time.
@@ -132,6 +147,7 @@ module AsyncFutures
         clock_timeout = Time.now.to_f + timeout if timeout
         mtx = Thread::Mutex.new
         queue = Thread::Queue.new
+        has_enumerated = false
 
         fs_ary = futures.to_a.uniq
         fs_sze = fs_ary.size
@@ -154,6 +170,8 @@ module AsyncFutures
         end
 
         Enumerator.new(fs_sze) do |yielder|
+          raise 'Enumerator already consumed' if mtx.synchronize { has_enumerated }
+
           enum_timeout = timeout && (clock_timeout - Time.now.to_f)
           raise Timeout::Error unless enum_timeout.nil? || enum_timeout.positive?
 
@@ -162,6 +180,8 @@ module AsyncFutures
               yielder.yield done_future
             end
           end
+        ensure
+          mtx.synchronize { has_enumerated = true }
         end
       end
     end
@@ -345,6 +365,22 @@ module AsyncFutures
       end
     end
 
+    # This method should only be called by Executor implementations
+    # before executing the work associated with the Future and by unit tests.
+    #
+    # If the method returns false then the `Future` was cancelled,
+    # i.e. `Future.cancel` was called and returned true.
+    # Any threads waiting on the Future completing
+    # (i.e. through as_completed() or wait()) will be woken up.
+    #
+    # If the method returns true
+    # then the `Future` was not cancelled
+    # and has been put in the running state,
+    # i.e. calls to `Future.running?` will return true.
+    #
+    # This method can only be called once
+    # and cannot be called after `Future.set_result()`
+    # or `Future.set_exception()` have been called.
     def set_running_or_notify_cancel
       @mutex.synchronize do
         case @state
@@ -363,6 +399,9 @@ module AsyncFutures
       end
     end
 
+    # Sets the result of the work associated with the `Future` to result.
+    #
+    # This method should only be used by `Executor` implementations and unit tests.
     def set_result(result) # rubocop:disable Naming/AccessorMethodName
       @mutex.synchronize do
         raise InvalidStateError.new("#{@state}: #{self}") if lockless_done?
@@ -374,6 +413,9 @@ module AsyncFutures
       invoke_callbacks
     end
 
+    # Sets the result of the work associated with the `Future` to the Exception `exception`.
+    #
+    # This method should only be used by `Executor` implementations and unit tests.
     def set_exception(exception) # rubocop:disable Naming/AccessorMethodName
       @mutex.synchronize do
         raise InvalidStateError.new("#{@state}: #{self}") if lockless_done?

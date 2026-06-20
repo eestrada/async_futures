@@ -252,6 +252,30 @@ class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
     assert_equal all_fs.map(&:result), completed_ary.map(&:result)
   end
 
+  def test_as_completed_multi_enumerate # rubocop:disable Metrics/AbcSize
+    future1 = AsyncFutures::Future.new
+    future2 = AsyncFutures::Future.new
+    future3 = AsyncFutures::Future.new
+
+    all_fs = [future1, future2, future3]
+    dup_fs = [future1, future2, future3, future1]
+
+    all_fs.each(&:set_running_or_notify_cancel)
+    all_fs.each_with_index { |f, i| f.set_result(i) }
+
+    completed = AsyncFutures::Future.as_completed(dup_fs)
+
+    assert_instance_of Enumerator, completed
+
+    completed_ary = completed.to_a
+
+    assert_instance_of Array, completed_ary
+
+    exc = assert_raises(RuntimeError) { completed.to_a }
+
+    assert_match(/^Enumerator already consumed$/, exc.message)
+  end
+
   def test_as_completed_follows_completion_order # rubocop:disable Metrics/AbcSize
     future1 = AsyncFutures::Future.new
     future2 = AsyncFutures::Future.new
