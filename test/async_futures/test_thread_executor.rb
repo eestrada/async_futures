@@ -10,7 +10,7 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
     @sleep_mult = case RUBY_ENGINE
                   when /jruby/, /truffleruby/
-                    4
+                    8
                   else
                     1
                   end
@@ -99,60 +99,56 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_only_one_worker # rubocop:disable Metrics/AbcSize
-    new_executor = AsyncFutures::ThreadExecutor.new(max_workers: 1)
+    AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
+      before_count = Thread.list.size
+      future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future1.result
+      future2.result
+      future3.result
+      after_count = Thread.list.size
 
-    before_count = Thread.list.size
-    future1 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-    future2 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-    future3 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-    future1.result
-    future2.result
-    future3.result
-    after_count = Thread.list.size
-
-    assert_operator after_count, :>, before_count
-    assert_equal before_count + 1, after_count
-  ensure
-    new_executor.shutdown
+      assert_operator after_count, :>, before_count
+      assert_equal before_count + 1, after_count
+    end
   end
 
-  def test_cancel_futures_in_shutdown
-    new_executor = AsyncFutures::ThreadExecutor.new(max_workers: 1)
+  def test_cancel_futures_in_shutdown # rubocop:disable Metrics/AbcSize
+    AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
+      future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future1.result
+      future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
 
-    future1 = new_executor.submit { sleep(0.1 * @sleep_mult) }
-    future1.result
-    future2 = new_executor.submit { sleep(0.1 * @sleep_mult) }
-    future3 = new_executor.submit { sleep(0.1 * @sleep_mult) }
+      executor.shutdown(cancel_futures: true)
 
-    new_executor.shutdown(cancel_futures: true)
+      refute_predicate future1, :cancelled?
 
-    refute_predicate future1, :cancelled?
+      # Based on scheduling race conditions,
+      # future2 could be cancelled or not.
+      # We don't know when the worker thread will take control
+      # and pick up another task.
+      # However, because there is only one worker thread,
+      # we know it can't pick up the third submitted task
+      # while it is "working" on the second,
+      # so assuming that the machine running this test isn't dog slow,
+      # we should be able to cancel future3 before the sleep runs out.
+      #
+      # Thus why we only check that future2 is "done?".
+      # We don't know for certain it will be canceled
+      # or if the worker thread will pick it up.
+      assert_predicate future2, :done?
 
-    # Based on scheduling race conditions,
-    # future2 could be cancelled or not.
-    # We don't know when the worker thread will take control
-    # and pick up another task.
-    # However, because there is only one worker thread,
-    # we know it can't pick up the third submitted task
-    # while it is "working" on the second,
-    # so assuming that the machine running this test isn't dog slow,
-    # we should be able to cancel future3 before the sleep runs out.
-    #
-    # Thus why we only check that future2 is "done?".
-    # We don't know for certain it will be canceled
-    # or if the worker thread will pick it up.
-    assert_predicate future2, :done?
-
-    assert_predicate future3, :cancelled?
-  ensure
-    new_executor.shutdown
+      assert_predicate future3, :cancelled?
+    end
   end
 
   def test_cancel_futures_manually # rubocop:disable Metrics/AbcSize
-    AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |new_executor|
-      future1 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-      future2 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-      future3 = new_executor.submit { sleep(0.01 * @sleep_mult) }
+    AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
+      future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
 
       assert_predicate future2, :pending?
       assert_predicate future3, :pending?
@@ -168,11 +164,11 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_reap_after # rubocop:disable Metrics/AbcSize
-    AsyncFutures::ThreadExecutor.new(max_workers: 1, reap_after: 0.03 * @sleep_mult).shutdown do |new_executor|
+    AsyncFutures::ThreadExecutor.new(max_workers: 1, reap_after: 0.03 * @sleep_mult).shutdown do |executor|
       count1 = Thread.list.size
-      future1 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-      future2 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-      future3 = new_executor.submit { sleep(0.01 * @sleep_mult) }
+      future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
       future1.result
       future2.result
       future3.result
@@ -187,11 +183,11 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_no_reap_after # rubocop:disable Metrics/AbcSize
-    AsyncFutures::ThreadExecutor.new(max_workers: 1, reap_after: nil).shutdown do |new_executor|
+    AsyncFutures::ThreadExecutor.new(max_workers: 1, reap_after: nil).shutdown do |executor|
       count1 = Thread.list.size
-      future1 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-      future2 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-      future3 = new_executor.submit { sleep(0.01 * @sleep_mult) }
+      future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
       future1.result
       future2.result
       future3.result

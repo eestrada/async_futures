@@ -133,15 +133,15 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     end
   end
 
-  def test_cancel_futures_in_shutdown
+  def test_cancel_futures_in_shutdown # rubocop:disable Metrics/AbcSize
     skip 'skip everywhere for now'
-    AsyncFutures::RactorExecutor.new(max_workers: 1) do |new_executor|
-      future1 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-      future1.result
-      future2 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-      future3 = new_executor.submit { sleep(0.01 * @sleep_mult) }
+    AsyncFutures::RactorExecutor.new(max_workers: 1) do |executor|
+      future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
+      future1.join
+      future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
+      future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
 
-      new_executor.shutdown(cancel_futures: true)
+      executor.shutdown(cancel_futures: true)
 
       refute_predicate future1, :cancelled?
 

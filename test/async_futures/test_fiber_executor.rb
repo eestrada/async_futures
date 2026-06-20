@@ -4,15 +4,18 @@ require_relative 'minitest_helper'
 
 class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def setup
-    case RUBY_ENGINE
-    when /jruby/
-      skip 'jruby stalls indefinitly'
-    when /truffleruby/
-      skip 'truffleruby does not support the Fiber::Scheduler interface yet'
-    else
-      require 'async_futures/fiber_executor'
-      require 'async'
-    end
+    @sleep_mult = case RUBY_ENGINE
+                  when /jruby/
+                    skip 'jruby stalls indefinitly'
+                    8
+                  when /truffleruby/
+                    skip 'truffleruby does not support the Fiber::Scheduler interface yet'
+                    8
+                  else
+                    require 'async_futures/fiber_executor'
+                    require 'async'
+                    1
+                  end
 
     @scheduler = Async::Scheduler.new
     Fiber.set_scheduler @scheduler
@@ -165,13 +168,13 @@ class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     assert_match(/^Future would deadlock: #<AsyncFutures::Future:\w+>$/, exc.message)
   end
 
-  def test_cancel_futures_in_shutdown
+  def test_cancel_futures_in_shutdown # rubocop:disable Metrics/AbcSize
     Fiber.schedule do
       AsyncFutures::FiberExecutor.new.shutdown do |executor|
-        future1 = executor.submit { sleep(0.02) }
+        future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
         future1.join
-        future2 = executor.submit { sleep(0.02) }
-        future3 = executor.submit { sleep(0.02) }
+        future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
+        future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
 
         executor.shutdown(cancel_futures: true)
 
@@ -180,7 +183,7 @@ class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
         assert_predicate future2, :done?
 
         # Because the FiberExecutor immediately runs tasks in a non-blocking
-        # Fiber, it is effectively impossible that they can be canceled before starting.
+        # Fiber, it is impossible for them be canceled before starting.
         assert_predicate future3, :done?
       end
     end
