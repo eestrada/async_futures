@@ -2,7 +2,7 @@
 
 require_relative 'minitest_helper'
 
-require 'async_futures'
+require 'async_futures/version'
 
 class TestAsyncFutures < Minitest::Test
   def test_that_it_has_a_version_number

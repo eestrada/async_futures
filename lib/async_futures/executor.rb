@@ -146,14 +146,11 @@ module AsyncFutures
 
         Timeout.timeout(local_timeout) { future.result }
       rescue Exception => e # rubocop:disable Lint/RescueException
-        begin
-          raise e
-        ensure
-          # If *any* future raises an exception,
-          # we need to be sure to cancel the remaining ones.
-          # It's ok if we call cancel on already completed ones.
-          (index...futures.size).each { |i| futures[i].cancel }
-        end
+        # If *any* future raises an exception,
+        # we need to be sure to cancel the remaining ones.
+        # It's ok if we call cancel on already completed ones.
+        (index...futures.size).each { |i| futures[i].cancel }
+        raise e
       end
     end
 
