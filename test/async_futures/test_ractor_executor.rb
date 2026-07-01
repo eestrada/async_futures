@@ -29,6 +29,32 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     AsyncFutures.logger = nil
   end
 
+  def test_new_with_conflicting_args
+    exc = assert_raises(ArgumentError) do
+      AsyncFutures::RactorExecutor.new(copy_args: true, make_args_shareable: false)
+    end
+
+    assert_match(/^`copy_args` cannot be true unless `make_args_shareable` is also true$/, exc.message)
+  end
+
+  def test_shareable_args
+    AsyncFutures::RactorExecutor.new(copy_args: true, make_args_shareable: true).shutdown do |executor|
+      future1 = executor.submit(1, 2, 3, 4, tell_me: 'that you love me more') do |*args, **kwargs|
+        [args, kwargs]
+      end
+
+      assert_instance_of AsyncFutures::Future, future1
+
+      result = future1.result
+
+      assert_predicate future1, :done?
+      assert_equal 2, result.size
+      assert_instance_of Array, result
+      assert_instance_of Array, result[0]
+      assert_instance_of Hash, result[1]
+    end
+  end
+
   def test_submit_raises_argument_error_without_block
     assert_raises(ArgumentError) { @executor.submit('No block given') }
   end
@@ -100,7 +126,7 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_set_worker_name_prefix
-    AsyncFutures::RactorExecutor.new(worker_name_prefix: 'best') do |executor|
+    AsyncFutures::RactorExecutor.new(worker_name_prefix: 'best').shutdown do |executor|
       future1 = executor.submit { Ractor.current.name }
 
       result = future1.result
@@ -125,8 +151,8 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     end
   end
 
-  def test_cancel_futures_in_shutdown
-    AsyncFutures::RactorExecutor.new(max_workers: 1) do |executor|
+  def test_cancel_futures_in_shutdown # rubocop:disable Metrics/AbcSize
+    AsyncFutures::RactorExecutor.new(max_workers: 1).shutdown do |executor|
       future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
       future1.join
       future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
@@ -138,9 +164,8 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
       # Based on scheduling race conditions,
       # future2 could be cancelled or not.
-      # We don't know when the worker thread will take control
-      # and pick up another task.
-      # However, because there is only one worker thread,
+      # We don't know when the worker will pick up another task.
+      # However, because there is only one worker,
       # we know it can't pick up the third submitted task
       # while it is "working" on the second,
       # so assuming that the machine running this test isn't dog slow,
@@ -148,7 +173,7 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
       #
       # Thus why we only check that future2 is "done?".
       # We don't know for certain it will be canceled
-      # or if the worker thread will pick it up.
+      # or if the worker will pick it up.
       assert_predicate future2, :done?
 
       assert_predicate future3, :cancelled?
