@@ -14,6 +14,7 @@ if defined?(SimpleCov)
     ]
 
     add_filter '/test/'
+    add_filter '/lib/async_futures/ractor_executor/spawn_worker.rb'
 
     case RUBY_ENGINE
     when /jruby/
