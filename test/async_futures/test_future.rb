@@ -372,6 +372,13 @@ class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
     refute_predicate future1, :running?
   end
 
+  def test_future_cannot_freeze
+    future1 = AsyncFutures::Future.new
+
+    exc = assert_raises(TypeError) { future1.freeze }
+    assert_match(/^cannot freeze #<AsyncFutures::Future:0x\w+>$/, exc.message)
+  end
+
   def test_complete_runs_on_pending_future
     future1 = AsyncFutures::Future.new
 

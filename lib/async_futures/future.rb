@@ -199,6 +199,15 @@ module AsyncFutures
       @fiber = nil
     end
 
+    # The future can’t be frozen, so this method raises an exception:
+    #
+    # ```ruby
+    # AsyncFutures::Future.new.freeze # Raises TypeError (cannot freeze #<AsyncFutures::Future:0x...>)
+    # ```
+    def freeze
+      raise TypeError.new("cannot freeze #{self}")
+    end
+
     # Convenience method to complete the future
     # with the given block, args, and kwargs.
     #
