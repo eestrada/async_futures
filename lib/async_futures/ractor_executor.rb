@@ -214,20 +214,30 @@ module AsyncFutures
 
           next unless future.set_running_or_notify_cancel
 
-          next_worker = @available_workers.pop
-          synchronize do
-            @futures[future.object_id] = future # rubocop:disable Lint/HashCompareByIdentity
-            @worker_futures[next_worker].add(future)
+          while (next_worker = @available_workers.pop)
+            break if synchronize do
+              # `block` was already made shareable
+              # in the submitting thread.
+              # `args` and `kwargs` _may_ have been made shareable already.
+              # `object_id` is an `Integer`
+              # and thus is inherently immutable and shareable.
+              ractor_task = [future.object_id, block, args, kwargs].freeze
+
+              begin
+                next_worker.send(ractor_task, move: @move_args)
+              rescue Ractor::ClosedError
+                # It's possible for a worker to close
+                # before it gets reaped from @pool and @available_workers.
+                #
+                # Just skip and try the next worker.
+                break false
+              end
+
+              @futures[future.object_id] = future # rubocop:disable Lint/HashCompareByIdentity
+              @worker_futures[next_worker].add(future)
+              true
+            end
           end
-
-          # `block` was already made shareable
-          # in the submitting thread.
-          # `args` and `kwargs` _may_ have been made shareable already.
-          # `object_id` is an `Integer`
-          # and thus is inherently immutable and shareable.
-          ractor_task = [future.object_id, block, args, kwargs].freeze
-
-          next_worker.send(ractor_task, move: @move_args)
         end
 
         # once the task queue closes
@@ -286,8 +296,12 @@ module AsyncFutures
             futures = synchronize { @worker_futures.delete(old_worker) || Set.new }
             begin
               old_worker.join
-            rescue Exception => e # rubocop:disable Lint/RescueException
-              futures.each { |f| f.set_exception(e) }
+            rescue Ractor::RemoteError => e
+              futures.each do |f|
+                f.set_exception(e.cause)
+              rescue InvalidStateError
+                # Do nothing
+              end
             end
           else # Must be an Array
             future_id, type, value = msg
@@ -309,7 +323,7 @@ module AsyncFutures
     # Only spawn a worker if one is needed.
     def maybe_spawn_worker
       # synchronize when interacting directly with @pool
-      synchronize { spawn_worker if !@tasks.empty? && @pool.size < @max_workers }
+      synchronize { spawn_worker if @pool.empty? || (!@tasks.empty? && @pool.size < @max_workers) }
     end
 
     # Always spawn a worker
