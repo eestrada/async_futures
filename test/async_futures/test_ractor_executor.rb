@@ -8,6 +8,9 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
     # The Ractor API was different before version 4.x of Ruby.
     skip "ractor_executor not supported in version '#{RUBY_VERSION}'" if RUBY_VERSION =~ /^3\./
+    if RUBY_ENGINE =~ /jruby/ || RUBY_ENGINE =~ /truffleruby/
+      skip "ractor_executor not supported in engine '#{RUBY_ENGINE}'"
+    end
 
     require 'async_futures/ractor_executor'
     require 'logger'
