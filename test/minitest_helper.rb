@@ -14,6 +14,11 @@ if defined?(SimpleCov)
     ]
 
     add_filter '/test/'
+
+    # This is ignored because SimpleCov doesn't support coverage across Ractors.
+    # It also doesn't support ignore Ractor code via magic comments.
+    # The only way to ignore currently is by just ignoring an entire file,
+    # which is what is done here.
     add_filter '/lib/async_futures/ractor_executor/spawn_worker.rb'
 
     case RUBY_ENGINE

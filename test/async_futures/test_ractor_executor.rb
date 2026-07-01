@@ -34,7 +34,6 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_submit_returns_a_future_object
-    skip 'errors for some reason'
     AsyncFutures::RactorExecutor.new.shutdown do |executor|
       future1 = executor.submit(1, 2, 3, 4, tell_me: 'that you love me more') do |*args, **kwargs|
         [args, kwargs]
@@ -157,11 +156,10 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_cancel_futures_manually # rubocop:disable Metrics/AbcSize
-    skip 'Seems to work, but throws some sort of deadlock during shutdown'
     AsyncFutures::RactorExecutor.new(max_workers: 1).shutdown do |executor|
-      future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
-      future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
-      future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
+      future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
 
       assert_predicate future2, :pending?
       assert_predicate future3, :pending?

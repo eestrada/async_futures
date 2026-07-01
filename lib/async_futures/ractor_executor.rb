@@ -181,12 +181,12 @@ module AsyncFutures
       end
     end
 
-    def wait_until(&block)
-      @condition.wait(@mutex) until block.call
+    def wait_until
+      @condition.wait(@mutex) until yield
     end
 
-    def wait_while(&block)
-      @condition.wait(@mutex) while block.call
+    def wait_while
+      @condition.wait(@mutex) while yield
     end
 
     # Returns the current shutdown state,
@@ -293,22 +293,13 @@ module AsyncFutures
 
         AsyncFutures.logger&.debug('RactorExecutor') { "started feeder #{Thread.current.name}" }
         loop do
-          if synchronize { @work_ports.empty? && @pool.empty? && @tasks.closed? && @tasks.empty? }
-            AsyncFutures.logger&.debug('RactorExecutor') { "breaking out of result_feeder loop #{Thread.current}" }
-            break
-          else
-            AsyncFutures.logger&.debug('RactorExecutor') { "not breaking out of result_feeder loop #{Thread.current}" }
+          break_loop, work_ports_keys = synchronize do
+            wait_until { !@work_ports.empty? || (@pool.empty? && @tasks.closed? && @tasks.empty?) }
+
+            [@work_ports.empty? && @pool.empty? && @tasks.closed? && @tasks.empty?, @work_ports.keys]
           end
 
-          work_ports_keys = synchronize do
-            AsyncFutures.logger&.debug('RactorExecutor') { "Wait while work ports is empty #{@work_ports}" }
-            wait_while { @work_ports.empty? }
-            AsyncFutures.logger&.debug('RactorExecutor') do
-              "work ports not empty, thus getting Array of keys #{@work_ports}"
-            end
-
-            @work_ports.keys
-          end
+          break if break_loop
 
           AsyncFutures.logger&.debug('RactorExecutor') do
             "waiting until a ractor worker has results to feed #{work_ports_keys}"
