@@ -527,7 +527,7 @@ class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
     future1.set_running_or_notify_cancel
     future1.set_result(42)
     raised_exc = assert_raises(AsyncFutures::InvalidStateError) { future1.set_result(43) }
-    assert_match(/FINISHED: /, raised_exc.message)
+    assert_match(/^Unexpected state 'FINISHED' for Future: #<AsyncFutures::Future:0x\w+>$/, raised_exc.message)
     assert_equal 42, future1.result
   end
 
@@ -537,7 +537,7 @@ class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
     test_exception = RuntimeError.new('A test exception')
     future1.set_exception(test_exception)
     raised_exc = assert_raises(AsyncFutures::InvalidStateError) { future1.set_exception(test_exception) }
-    assert_match(/FINISHED: /, raised_exc.message)
+    assert_match(/^Unexpected state 'FINISHED' for Future: #<AsyncFutures::Future:0x\w+>$/, raised_exc.message)
   end
 
   def test_set_exception_causes_result_to_raise_exception
@@ -581,26 +581,11 @@ class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
     assert_predicate future1, :cancelled?
   end
 
-  def test_calling_set_running_twice_logs_properly
-    @mock = Minitest::Mock.new
-    AsyncFutures.logger = @mock
-    @mock.expect :unknown, nil
-
-    future1 = AsyncFutures::Future.new
-    future1.set_running_or_notify_cancel
-    raised_exc = assert_raises(AsyncFutures::InvalidStateError) { future1.set_running_or_notify_cancel }
-    assert_equal 'Future in unexpected state', raised_exc.message
-
-    @mock.verify
-  ensure
-    AsyncFutures.logger = nil
-  end
-
   def test_calling_set_running_twice_raises_exception
     future1 = AsyncFutures::Future.new
     future1.set_running_or_notify_cancel
     raised_exc = assert_raises(AsyncFutures::InvalidStateError) { future1.set_running_or_notify_cancel }
-    assert_equal 'Future in unexpected state', raised_exc.message
+    assert_match(/^Unexpected state 'RUNNING' for Future: #<AsyncFutures::Future:0x\w+>$/, raised_exc.message)
   end
 
   def test_calling_set_running_after_cancel_returns_false

@@ -213,6 +213,7 @@ module AsyncFutures
       begin
         return false unless set_running_or_notify_cancel(set_context: true)
       rescue InvalidStateError
+        # RUNNING, CANCELLED_AND_NOTIFIED, or FINISHED states.
         return false
       end
 
@@ -392,22 +393,28 @@ module AsyncFutures
       end
     end
 
-    # This method should only be called by Executor implementations
-    # before executing the work associated with the Future and by unit tests.
+    # This method should only be called by `Executor` implementations
+    # before executing the work associated with the `Future`
+    # and by unit tests.
     #
-    # If the method returns false then the `Future` was cancelled,
-    # i.e. `Future.cancel` was called and returned true.
-    # Any threads waiting on the Future completing
-    # (i.e. through as_completed() or wait()) will be woken up.
+    # If the method returns `false` then the `Future` was cancelled,
+    # i.e. `Future.cancel` was called and returned `true`.
+    # Any threads waiting on the `Future` completing
+    # (i.e. through `Future.as_completed()` or `Future.wait()`) will be woken up.
     #
     # If the method returns true
     # then the `Future` was not cancelled
     # and has been put in the running state,
     # i.e. calls to `Future.running?` will return true.
     #
-    # This method can only be called once
-    # and cannot be called after `Future.set_result()`
-    # or `Future.set_exception()` have been called.
+    # This method should only be called once.
+    # If it is called more than once,
+    # then it will raise an `InvalidStateError` exception.
+    # If it is called after `Future.set_result()`
+    # or `Future.set_exception()` have been called
+    # then it will raise an `InvalidStateError` exception.
+    # Thus, this is why it is more of an implementation detail
+    # for Executor implementations (or similar).
     def set_running_or_notify_cancel(set_context: false)
       @mutex.synchronize do
         case @state
@@ -424,8 +431,8 @@ module AsyncFutures
           end
           return true
         else
-          logger&.unknown { "Future #{self} in unexpected state #{@state}" }
-          raise InvalidStateError.new('Future in unexpected state')
+          # raised for RUNNING, CANCELLED_AND_NOTIFIED, and FINISHED states.
+          raise InvalidStateError.new(self, @state)
         end
       end
     end
@@ -435,7 +442,7 @@ module AsyncFutures
     # This method should only be used by `Executor` implementations and unit tests.
     def set_result(result) # rubocop:disable Naming/AccessorMethodName
       @mutex.synchronize do
-        raise InvalidStateError.new("#{@state}: #{self}") if lockless_done?
+        raise InvalidStateError.new(self, @state) if lockless_done?
 
         @result = result
         @state = FINISHED
@@ -449,7 +456,7 @@ module AsyncFutures
     # This method should only be used by `Executor` implementations and unit tests.
     def set_exception(exception) # rubocop:disable Naming/AccessorMethodName
       @mutex.synchronize do
-        raise InvalidStateError.new("#{@state}: #{self}") if lockless_done?
+        raise InvalidStateError.new(self, @state) if lockless_done?
         raise ArgumentError.new("Not an Exception: #{exception.inspect}") unless exception.is_a?(Exception)
 
         @exception = exception
@@ -465,15 +472,12 @@ module AsyncFutures
 
     # Not yet started.
     PENDING = :PENDING
-    private_constant :PENDING
 
     # Has a worker doing work to complete it.
     RUNNING = :RUNNING
-    private_constant :RUNNING
 
     # The future was cancelled.
     CANCELLED = :CANCELLED
-    private_constant :CANCELLED
 
     # Future has been cancelled
     # **and** the worker assigned to complete the future has been notified.
@@ -482,11 +486,12 @@ module AsyncFutures
     # This prevents future from be set to running or cancelled more than once.
     # Instead it raises an InvalidStateError if this is the state.
     CANCELLED_AND_NOTIFIED = :CANCELLED_AND_NOTIFIED
-    private_constant :CANCELLED_AND_NOTIFIED
 
     # Finished running, via either success or exception.
     FINISHED = :FINISHED
-    private_constant :FINISHED
+
+    # Make all internal states private visibility
+    private_constant :PENDING, :RUNNING, :CANCELLED, :CANCELLED_AND_NOTIFIED, :FINISHED
 
     def private_join(timeout, &block)
       Timeout.timeout(timeout) do
