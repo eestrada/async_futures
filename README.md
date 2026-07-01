@@ -2,7 +2,7 @@
 
 ## Launch asynchronous tasks
 
-[![Ruby](https://github.com/eestrada/async_futures/actions/workflows/main.yml/badge.svg?branch=master)](https://github.com/eestrada/async_futures/actions/workflows/main.yml)
+[![CI Status](https://github.com/eestrada/async_futures/actions/workflows/main.yml/badge.svg?branch=master)](https://github.com/eestrada/async_futures/actions/workflows/main.yml)
 
 This library is heavily inspired by Python's `concurrent.futures` module.
 It's API (mostly) follows the same one as the Python
