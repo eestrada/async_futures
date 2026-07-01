@@ -80,33 +80,20 @@ module AsyncFutures
     # Asynchronously submit a task for execution.
     #
     # See `AsyncFutures::Executor.submit` method for full documentation.
-    def submit(*args, **kwargs, &block) # rubocop:disable Metrics/AbcSize
+    def submit(*args, **kwargs, &block)
       raise ArgumentError.new('No block given') unless block
 
       Future.new.tap do |future|
         @mutex.synchronize do
           raise 'FiberExecutor instance is shutdown' if @is_shutdown
 
-          @futures.add future
-
-          # FibersExecutor tasks are run immediately,
-          # thus their futures can't be cancelled.
-          future.set_running_or_notify_cancel
+          # Need to set this immediately to ensure DeadlockError is raised appropriately.
           future.thread = Thread.current
+          @futures.add future
+          future.add_done_callback { |f| @mutex.synchronize { @futures.delete f } }
         end
 
-        Fiber.schedule do
-          future.fiber = Fiber.current
-          begin
-            result = block.call(*args, **kwargs)
-          rescue Exception => e # rubocop:disable Lint/RescueException
-            future.set_exception(e)
-          else
-            future.set_result(result)
-          end
-        ensure
-          @mutex.synchronize { @futures.delete future }
-        end
+        Fiber.schedule { future.complete(*args, **kwargs, &block) }
       end
     end
 

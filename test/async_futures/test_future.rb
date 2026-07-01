@@ -372,6 +372,36 @@ class TestFuture < Minitest::Test # rubocop:disable Metrics/ClassLength
     refute_predicate future1, :running?
   end
 
+  def test_complete_runs_on_pending_future
+    future1 = AsyncFutures::Future.new
+
+    assert_predicate future1, :pending?
+
+    block_ran = false
+
+    complete_result = future1.complete { block_ran = true }
+
+    assert_same true, complete_result
+    assert_same true, block_ran
+  end
+
+  def test_complete_doesnt_run_on_running_future
+    future1 = AsyncFutures::Future.new
+
+    assert_predicate future1, :pending?
+
+    future1.set_running_or_notify_cancel
+
+    assert_predicate future1, :running?
+
+    block_ran = false
+
+    complete_result = future1.complete { block_ran = true }
+
+    assert_same false, complete_result
+    assert_same false, block_ran
+  end
+
   def test_future_should_be_running_after_set_notify
     future1 = AsyncFutures::Future.new
 

@@ -26,25 +26,16 @@ module AsyncFutures
   # This is already logically correct
   # and should work with any `Executor` implementation.
   module Executor
-    # Schedules the block, to be executed as `block.call(*args, **kwargs)`
+    # Schedules the block
+    # to be executed as `block.call(*args, **kwargs)`
     # and returns a `Future` object representing the execution of the block.
     #
-    # Under some circumstances may run immediately and synchronously
+    # Some Executor implementations may,
+    # under some or all circumstances,
+    # run the given block immediately and synchronously
     # and return an already completed `Future` object.
-    def submit(*args, **kwargs, &block)
-      raise ArgumentError.new('No block given') unless block
-
-      Future.new.tap do |future|
-        future.set_running_or_notify_cancel
-
-        begin
-          result = block.call(*args, **kwargs)
-        rescue Exception => e # rubocop:disable Lint/RescueException
-          future.set_exception(e)
-        else
-          future.set_result(result)
-        end
-      end
+    def submit(...)
+      Future.new.tap { |future| future.complete(...) }
     end
 
     # Schedules the block, to be executed as `block.call(*args, **kwargs)` and

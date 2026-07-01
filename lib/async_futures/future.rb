@@ -199,6 +199,33 @@ module AsyncFutures
       @fiber = nil
     end
 
+    # Convenience method to complete the future
+    # with the given block, args, and kwargs.
+    #
+    # This method will only run the given block
+    # if the future is *not* already running, canceled, or completed.
+    #
+    # It will return `true` if the block was run by this call
+    # and `false` if it was *not* run by this call.
+    def complete(*args, **kwargs, &block) # rubocop:disable Style/ArgumentsForwarding,Naming/PredicateMethod
+      raise ArgumentError.new('No block given') unless block
+
+      begin
+        return false unless set_running_or_notify_cancel(set_context: true)
+      rescue InvalidStateError
+        return false
+      end
+
+      begin
+        result = block.call(*args, **kwargs) # rubocop:disable Style/ArgumentsForwarding
+      rescue Exception => e # rubocop:disable Lint/RescueException
+        set_exception(e)
+      else
+        set_result(result)
+      end
+      true
+    end
+
     # The Fiber that owns the work for this Future.
     # Used to detect deadlocks.
     # Not for direct use.
@@ -381,7 +408,7 @@ module AsyncFutures
     # This method can only be called once
     # and cannot be called after `Future.set_result()`
     # or `Future.set_exception()` have been called.
-    def set_running_or_notify_cancel
+    def set_running_or_notify_cancel(set_context: false)
       @mutex.synchronize do
         case @state
         when CANCELLED
@@ -391,6 +418,10 @@ module AsyncFutures
         when PENDING
           @state = RUNNING
           @condition.broadcast
+          if set_context
+            @thread = Thread.current
+            @fiber = Fiber.current
+          end
           return true
         else
           logger&.unknown { "Future #{self} in unexpected state #{@state}" }
