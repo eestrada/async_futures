@@ -17,28 +17,30 @@ It has a different name for several reasons:
 
 1. The [concurrent-ruby](https://rubygems.org/gems/concurrent-ruby) library
    already exists and is very popular.
-   Naming this `concurrent-futures` would be confusing,
+   Naming this library `concurrent-futures`
+   would place it under the same `Concurrent` module namespace.
+   This would be confusing,
    since this project isn't associated with that one.
 2. This library does not _require_ that `Executor` implementations support concurrency,
    only asynchrony.
    (See Loris Cro's excellent article
    [Asynchrony is not Concurrency](https://kristoff.it/blog/asynchrony-is-not-concurrency/)
-   to understand the way these terms are used in this README).
+   to understand the way these terms are used in this project's documentation).
    Consequently, this library implements (and supports) `Executor` implementations
    that conform to an asynchronous interface,
    but can in reality run immediately in synchronous modes.
    This is still logically correct based on Loris Cro's definition of asynchrony:
    the possibility for tasks to run out of order
    and still be correct.
-   This also means tasks run strictly in order
+   This means tasks run strictly in order
    (i.e. synchronously)
-   are also correct.
+   are _also_ correct.
 3. The more straightforward gem names [future](https://rubygems.org/gems/future)
    and [futures](https://rubygems.org/gems/futures)
    were already taken.
 
 This Gem has multiple `Executor` implementations for creating `Future` instances
-backed by `Ractor`, `Thread`, and `Fiber` concurrency primitives.
+for tasks executed by `Ractor`, `Thread`, and `Fiber` concurrency primitives.
 Users of the library can easily test out the performance differences
 of primitives while only changing their code minimally.
 
@@ -48,7 +50,7 @@ to have a synchronous `Executor` implementation
 that runs code immediately
 and returns a completed future at the point of submission.
 Although this may seem pointless, it has the benefit
-that users of this library can trivially change their code
+that users of this library can trivially change their code execution
 from serial to concurrent and back again
 simply by using different `Executor` implementations.
 In other words, their code does not require multiple complicated code paths
