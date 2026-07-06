@@ -97,18 +97,14 @@ module AsyncFutures
       end
     end
 
-    # Raises `NoConcurrencyError`
-    # unless `treat_as_concurrent` was passed as `true`
+    # Return `true`
+    # if `treat_as_concurrent` was passed as `true`
     # to the `FiberExecutor` constructor.
     #
     # Otherwise,
-    # forwards to `AsyncFutures::FiberExecutor.submit` method.
-    #
-    # See `AsyncFutures::FiberExecutor.submit` method for full documentation.
-    def submit_concurrent(...)
-      raise NoConcurrencyError unless @treat_as_concurrent
-
-      submit(...)
+    # return `false`.
+    def support_concurrency?
+      !!@treat_as_concurrent
     end
 
     # Shutdown `FiberExecutor` instance.

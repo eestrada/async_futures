@@ -145,9 +145,15 @@ module AsyncFutures
       end
     end
 
-    alias submit_concurrent submit
+    # :nocov:
 
-    public :map
+    # Always returns `true`
+    # for `RactorExecutor`.
+    def support_concurrency?
+      true
+    end
+
+    # :nocov:
 
     # Shutdown `RactorExecutor` instance.
     #

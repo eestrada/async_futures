@@ -66,9 +66,15 @@ module AsyncFutures
       end
     end
 
-    alias submit_concurrent submit
+    # :nocov:
 
-    public :map
+    # Always returns `true`
+    # for `ThreadExecutor`.
+    def support_concurrency?
+      true
+    end
+
+    # :nocov:
 
     # Shutdown `ThreadExecutor` instance.
     #

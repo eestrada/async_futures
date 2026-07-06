@@ -50,8 +50,15 @@ module AsyncFutures
     # it is better for it to raise an exception such as `NoConcurrencyError`.
     # This at least allows the caller an opportunity to recover
     # instead of potentially deadlocking.
-    def submit_concurrent(*args, **kwargs, &block) # rubocop:disable Lint/UnusedMethodArgument,Naming/BlockForwarding
-      raise NoConcurrencyError
+    def submit_concurrent(...)
+      raise NoConcurrencyError unless support_concurrency?
+
+      submit(...)
+    end
+
+    # Return whether the current `Executor` implementation supports concurrency.
+    def support_concurrency?
+      false
     end
 
     # Similar to `enumerable.map(&block)` except:
@@ -210,8 +217,8 @@ module AsyncFutures
       # to even keep track of whether shutdown has previously been called or not.
     end
 
-    module_function :submit, :submit_concurrent, :map, :shutdown
+    module_function :submit, :submit_concurrent, :support_concurrency?, :map, :shutdown
 
-    public :submit, :submit_concurrent, :map, :shutdown
+    public :submit, :submit_concurrent, :support_concurrency?, :map, :shutdown
   end
 end

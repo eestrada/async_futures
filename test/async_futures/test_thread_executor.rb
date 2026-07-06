@@ -53,10 +53,6 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     assert_predicate future1, :done?
   end
 
-  def test_submit_concurrent_is_alias
-    assert_equal @executor.method(:submit), @executor.method(:submit_concurrent)
-  end
-
   def test_map
     enum = [1, 2, 3, 4]
     map_result = @executor.map(enum, &:to_s)
