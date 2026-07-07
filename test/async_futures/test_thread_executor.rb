@@ -53,6 +53,129 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     assert_predicate future1, :done?
   end
 
+  def test_run_deadlocking_submission_immediately
+    AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
+      future1 = executor.submit(executor, @sleep_mult) do |meta_exec, sleep_mult|
+        sleep(0.02 * sleep_mult)
+        f_inner1 = meta_exec.submit { 1234 }
+
+        # Because the submission would deadlock,
+        # it is run immediately
+        # instead of being scheduled for later.
+        assert_predicate f_inner1, :done?
+        f_inner1.result
+      end
+
+      # The parent future should *not* be run immediately.
+      refute_predicate future1, :done?
+
+      assert_equal 1234, future1.result
+    end
+  end
+
+  def test_run_deadlocking_submission_after_shutdown
+    AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
+      future1 = executor.submit(executor, @sleep_mult) do |meta_exec, sleep_mult|
+        meta_exec.shutdown(wait: false)
+
+        sleep(0.02 * sleep_mult)
+
+        assert_raises(RuntimeError) { meta_exec.submit { 1234 } }
+      end
+
+      # The parent future should *not* be run immediately.
+      refute_predicate future1, :done?
+
+      exc = future1.result
+
+      assert_match(/^ThreadExecutor instance is shutdown$/, exc.message)
+    end
+  end
+
+  def test_concurrent_submission_success
+    AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
+      future1 = executor.submit_concurrent(@sleep_mult) do |sleep_mult|
+        sleep(0.02 * sleep_mult)
+
+        1234
+      end
+
+      # The parent future should *not* be run immediately.
+      refute_predicate future1, :done?
+
+      assert_equal 1234, future1.result
+    end
+  end
+
+  def test_concurrent_submission_no_block
+    AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
+      exc = assert_raises(ArgumentError) { executor.submit_concurrent }
+
+      assert_match(/^No block given$/, exc.message)
+    end
+  end
+
+  def test_concurrent_submission_deadlocking
+    AsyncFutures::ThreadExecutor.new(max_workers: 1, strict_concurrency: true).shutdown do |executor|
+      future1 = executor.submit(executor, @sleep_mult) do |meta_exec, sleep_mult|
+        sleep(0.02 * sleep_mult)
+
+        assert_raises(AsyncFutures::NoConcurrencyError) do
+          meta_exec.submit_concurrent { 1234 }
+        end
+      end
+
+      # The parent future should *not* be run immediately.
+      refute_predicate future1, :done?
+
+      exc = future1.result
+
+      assert_match(/^Task submitted from lone worker thread is not concurrent$/, exc.message)
+    end
+  end
+
+  def test_concurrent_submission_after_shutdown_single_worker
+    AsyncFutures::ThreadExecutor.new(max_workers: 1, strict_concurrency: true).shutdown do |executor|
+      future1 = executor.submit(executor, @sleep_mult) do |meta_exec, sleep_mult|
+        sleep(0.02 * sleep_mult)
+
+        meta_exec.shutdown(wait: false)
+
+        assert_raises(RuntimeError) do
+          meta_exec.submit_concurrent { 1234 }
+        end
+      end
+
+      # The parent future should *not* be run immediately.
+      refute_predicate future1, :done?
+
+      exc = future1.result
+
+      assert_match(/^ThreadExecutor instance is shutdown$/, exc.message)
+    end
+  end
+
+  def test_concurrent_submission_after_shutdown_multi_worker
+    AsyncFutures::ThreadExecutor.new(max_workers: 2, strict_concurrency: true).shutdown do |executor|
+      future1 = executor.submit(executor, @sleep_mult) do |meta_exec, sleep_mult|
+        sleep(0.02 * sleep_mult)
+
+        meta_exec.shutdown(wait: false)
+
+        assert_raises(RuntimeError) do
+          meta_exec.submit_concurrent { 1234 }
+        end
+      end
+
+      # The parent future should *not* be run immediately.
+      refute_predicate future1, :done?
+
+      exc = future1.result
+
+      assert_match(/^ThreadExecutor instance is shutdown$/, exc.message)
+    end
+  end
+
   def test_map
     enum = [1, 2, 3, 4]
     map_result = @executor.map(enum, &:to_s)

@@ -40,13 +40,27 @@ module AsyncFutures
     # if they haven't received any work after this amount of seconds.
     # If it is `nil` or not given,
     # they will not be reaped until the `ThreadExecutor` instance is `shutdown`.
-    def initialize(max_workers: nil, worker_name_prefix: nil, reap_after: nil)
+    #
+    # If the `strict_concurrency` keyword argument is given
+    # and it is not falsy
+    # it will cause `submit_concurrent` to raise `NoConcurrencyError`
+    # if it is not possible to run all pending tasks
+    # plus the newly submitted task with full concurrency.
+    # If it is falsy (the default)
+    # then it is considered to have _loose_ concurrency
+    # (it is considered concurrent only with the submitting thread).
+    # It should never raise `NoConcurrencyError`.
+    def initialize(max_workers: nil, worker_name_prefix: nil, reap_after: nil, strict_concurrency: false)
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
       @worker_name_prefix = worker_name_prefix
       @reap_after = reap_after
+      @strict_concurrency = strict_concurrency
       @mutex = Thread::Mutex.new
       @tasks = Thread::Queue.new
-      @pool = Set.new
+
+      # Set Hash value to `true` when a worker is running
+      # and `false` otherwise.
+      @pool = {}
       @worker_count = 0
 
       at_exit { shutdown(wait: false) }
@@ -54,15 +68,53 @@ module AsyncFutures
 
     # Asynchronously submit a task for execution.
     #
+    # May run task immediately
+    # and return a completed `Future`
+    # under certain circumstances.
+    #
     # See `AsyncFutures::Executor.submit` method for full documentation.
     def submit(*args, **kwargs, &block)
       raise ArgumentError.new('No block given') unless block
 
+      shutdown_msg = 'ThreadExecutor instance is shutdown'
+
       Future.new.tap do |future|
+        if synchronize { @pool.include?(Thread.current) } && @max_workers == 1
+          raise shutdown_msg if @tasks.closed?
+
+          future.complete(*args, **kwargs, &block)
+        else
+          @tasks.push([future, block, args, kwargs])
+          maybe_spawn_worker
+        end
+      rescue ClosedQueueError
+        raise shutdown_msg
+      end
+    end
+
+    # Submit a task for concurrent execution.
+    #
+    # Will raise `NoConcurrencyError`
+    # if it is not possible
+    # to run the task concurrently
+    # with other already scheduled tasks.
+    #
+    # See `AsyncFutures::Executor.submit_concurrent` method for full documentation.
+    def submit_concurrent(*args, **kwargs, &block)
+      raise ArgumentError.new('No block given') unless block
+
+      shutdown_msg = 'ThreadExecutor instance is shutdown'
+
+      Future.new.tap do |future|
+        if synchronize { @pool.include?(Thread.current) } && @max_workers == 1
+          raise shutdown_msg if @tasks.closed?
+
+          raise NoConcurrencyError.new('Task submitted from lone worker thread is not concurrent')
+        end
         @tasks.push([future, block, args, kwargs])
         maybe_spawn_worker
       rescue ClosedQueueError
-        raise 'ThreadExecutor instance is shutdown'
+        raise shutdown_msg
       end
     end
 
@@ -134,18 +186,21 @@ module AsyncFutures
     end
 
     # Always spawn a worker
-    def spawn_worker
+    def spawn_worker # rubocop:disable Metrics/AbcSize
       thread = Thread.new do
         Thread.current.name = new_worker_name
         while (task = @tasks.pop(timeout: @reap_after))
-          tfuture, tblock, targs, tkwargs = task
+          synchronize { @pool[Thread.current] = true }
 
+          tfuture, tblock, targs, tkwargs = task
           tfuture.complete(*targs, **tkwargs, &tblock)
+
+          synchronize { @pool[Thread.current] = false }
         end
       ensure
         synchronize { @pool.delete Thread.current }
       end
-      synchronize { @pool.add thread }
+      synchronize { @pool[thread] ||= false }
     end
   end
 end
