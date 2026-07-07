@@ -40,21 +40,10 @@ module AsyncFutures
     # if they haven't received any work after this amount of seconds.
     # If it is `nil` or not given,
     # they will not be reaped until the `ThreadExecutor` instance is `shutdown`.
-    #
-    # If the `strict_concurrency` keyword argument is given
-    # and it is not falsy
-    # it will cause `submit_concurrent` to raise `NoConcurrencyError`
-    # if it is not possible to run all pending tasks
-    # plus the newly submitted task with full concurrency.
-    # If it is falsy (the default)
-    # then it is considered to have _loose_ concurrency
-    # (it is considered concurrent only with the submitting thread).
-    # It should never raise `NoConcurrencyError`.
-    def initialize(max_workers: nil, worker_name_prefix: nil, reap_after: nil, strict_concurrency: false)
+    def initialize(max_workers: nil, worker_name_prefix: nil, reap_after: nil)
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
       @worker_name_prefix = worker_name_prefix
       @reap_after = reap_after
-      @strict_concurrency = strict_concurrency
       @mutex = Thread::Mutex.new
       @tasks = Thread::Queue.new
 

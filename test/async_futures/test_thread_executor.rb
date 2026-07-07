@@ -116,7 +116,7 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_concurrent_submission_deadlocking
-    AsyncFutures::ThreadExecutor.new(max_workers: 1, strict_concurrency: true).shutdown do |executor|
+    AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
       future1 = executor.submit(executor, @sleep_mult) do |meta_exec, sleep_mult|
         sleep(0.02 * sleep_mult)
 
@@ -135,7 +135,7 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_concurrent_submission_after_shutdown_single_worker
-    AsyncFutures::ThreadExecutor.new(max_workers: 1, strict_concurrency: true).shutdown do |executor|
+    AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
       future1 = executor.submit(executor, @sleep_mult) do |meta_exec, sleep_mult|
         sleep(0.02 * sleep_mult)
 
@@ -156,7 +156,7 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_concurrent_submission_after_shutdown_multi_worker
-    AsyncFutures::ThreadExecutor.new(max_workers: 2, strict_concurrency: true).shutdown do |executor|
+    AsyncFutures::ThreadExecutor.new(max_workers: 2).shutdown do |executor|
       future1 = executor.submit(executor, @sleep_mult) do |meta_exec, sleep_mult|
         sleep(0.02 * sleep_mult)
 
