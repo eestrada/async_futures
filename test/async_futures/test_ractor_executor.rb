@@ -147,6 +147,8 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
       future2 = executor.submit { Ractor.current.default_port }
 
+      future2.join
+
       skip 'With only one worker, I cannot get this to work correctly'
 
       # FIXME: This should be caught and dealt with before this future is even spawned.
@@ -161,26 +163,30 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
   def test_only_one_worker # rubocop:disable Metrics/AbcSize
     AsyncFutures::RactorExecutor.new(max_workers: 1).shutdown do |executor|
-      before_count = Ractor.count
+      before_time = Time.now
+
       future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
       future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
       future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
       future1.result
       future2.result
       future3.result
-      after_count = Ractor.count
 
-      assert_operator after_count, :>, before_count
-      assert_equal before_count + 1, after_count
+      after_time = Time.now
+      expected_wait = 0.02 * @sleep_mult * 3
+      wait_difference = after_time.to_f - before_time.to_f
+
+      assert_operator after_time, :>, before_time
+      assert_operator expected_wait, :<=, wait_difference
     end
   end
 
   def test_cancel_futures_in_shutdown # rubocop:disable Metrics/AbcSize
     AsyncFutures::RactorExecutor.new(max_workers: 1).shutdown do |executor|
-      future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
+      future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
       future1.join
-      future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
-      future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
+      future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
 
       executor.shutdown(cancel_futures: true)
 
@@ -206,10 +212,10 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
   def test_dont_wait_in_shutdown
     AsyncFutures::RactorExecutor.new(max_workers: 1).shutdown do |executor|
-      future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
+      future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
       future1.join
-      executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
-      future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
+      executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
 
       executor.shutdown(cancel_futures: false, wait: false)
 
