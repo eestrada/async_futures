@@ -115,7 +115,7 @@ module AsyncFutures
           end
         rescue Timeout::Error
           queue.close
-          while (dn_ftr = queue.pop(timeout: 0))
+          while (dn_ftr = queue.pop)
             done_set.add(dn_ftr)
           end
         end
