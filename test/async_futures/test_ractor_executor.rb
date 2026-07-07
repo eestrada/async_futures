@@ -183,27 +183,40 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
   def test_cancel_futures_in_shutdown # rubocop:disable Metrics/AbcSize
     AsyncFutures::RactorExecutor.new(max_workers: 1).shutdown do |executor|
-      future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
-      future1.join
-      future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
-      future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future0 = executor.submit { Ractor::Port.new }
 
-      executor.shutdown(cancel_futures: true)
+      p0 = future0.result
+
+      future1 = executor.submit(p0, &:receive)
+      future2 = executor.submit(p0, &:receive)
+      future3 = executor.submit(p0, &:receive)
+
+      p0.send 1
+      future1.join
+
+      assert_equal 1, future1.result
+
+      executor.shutdown(wait: false, cancel_futures: true)
 
       refute_predicate future1, :cancelled?
 
+      p0.send 2
+      p0.send 3
+
+      future2.join
+      future3.join
+
       # Based on scheduling race conditions,
       # future2 could be cancelled or not.
-      # We don't know when the worker will pick up another task.
-      # However, because there is only one worker,
+      # We don't know when the worker thread will take control
+      # and pick up another task.
+      # However, because there is only one worker thread,
       # we know it can't pick up the third submitted task
-      # while it is "working" on the second,
-      # so assuming that the machine running this test isn't dog slow,
-      # we should be able to cancel future3 before the sleep runs out.
+      # while it is "working" on the second.
       #
       # Thus why we only check that future2 is "done?".
       # We don't know for certain it will be canceled
-      # or if the worker will pick it up.
+      # or if the worker thread will pick it up.
       assert_predicate future2, :done?
 
       assert_predicate future3, :cancelled?

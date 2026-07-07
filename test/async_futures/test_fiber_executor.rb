@@ -171,20 +171,44 @@ class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def test_cancel_futures_in_shutdown # rubocop:disable Metrics/AbcSize
     Fiber.schedule do
       AsyncFutures::FiberExecutor.new.shutdown do |executor|
-        future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
-        future1.join
-        future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
-        future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 & sleep_mult) }
+        m1 = Thread::Mutex.new
+        m2 = Thread::Mutex.new
+        m3 = Thread::Mutex.new
 
-        executor.shutdown(cancel_futures: true)
+        m1.lock
+        m2.lock
+        m3.lock
+
+        future1 = executor.submit(m1) { |mtx| mtx.synchronize { 1 } }
+        future2 = executor.submit(m2) { |mtx| mtx.synchronize { 2 } }
+        future3 = executor.submit(m3) { |mtx| mtx.synchronize { 3 } }
+
+        m1.unlock
+
+        assert_equal 1, future1.result
 
         refute_predicate future1, :cancelled?
 
-        assert_predicate future2, :done?
+        executor.shutdown(wait: false, cancel_futures: true)
+
+        m2.unlock
+        m3.unlock
+
+        future2.join
+        future3.join
 
         # Because the FiberExecutor immediately runs tasks in a non-blocking
         # Fiber, it is impossible for them be canceled before starting.
-        assert_predicate future3, :done?
+        refute_predicate future1, :cancelled?
+        refute_predicate future2, :cancelled?
+        refute_predicate future3, :cancelled?
+
+        assert_equal 2, future2.result
+        assert_equal 3, future3.result
+      ensure
+        m1.unlock if m1.locked?
+        m2.unlock if m2.locked?
+        m3.unlock if m3.locked?
       end
     end
   end
