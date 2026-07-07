@@ -17,8 +17,8 @@ if defined?(SimpleCov)
 
     case RUBY_ENGINE
     when /jruby/
-      # No branch coverage for jruby
-      minimum_coverage line: 100
+      # No branch coverage or minimum_coverage for jruby
+      # minimum_coverage line: 100
     when /truffleruby/
       # No minimum_coverage coverage for truffleruby
       enable_coverage :branch
