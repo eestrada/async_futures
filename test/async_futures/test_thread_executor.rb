@@ -55,19 +55,23 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
   def test_run_deadlocking_submission_immediately
     AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
-      future1 = executor.submit(executor, @sleep_mult) do |meta_exec, sleep_mult|
-        sleep(0.02 * sleep_mult)
-        f_inner1 = meta_exec.submit { 1234 }
+      m1 = Thread::Mutex.new
 
-        # Because the submission would deadlock,
-        # it is run immediately
-        # instead of being scheduled for later.
-        assert_predicate f_inner1, :done?
-        f_inner1.result
+      future1 = m1.synchronize do
+        executor.submit(executor, m1) do |meta_exec, mtx|
+          f_inner1 = meta_exec.submit { 1234 }
+
+          # Because the submission would deadlock,
+          # it is run immediately
+          # instead of being scheduled for later.
+          assert_predicate f_inner1, :done?
+
+          mtx.synchronize { f_inner1.result }
+        end.tap do |f1| # rubocop:disable Style/MultilineBlockChain
+          # The parent future should *not* be run immediately.
+          refute_predicate f1, :done?
+        end
       end
-
-      # The parent future should *not* be run immediately.
-      refute_predicate future1, :done?
 
       assert_equal 1234, future1.result
     end
@@ -75,16 +79,20 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
   def test_run_deadlocking_submission_after_shutdown
     AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
-      future1 = executor.submit(executor, @sleep_mult) do |meta_exec, sleep_mult|
-        meta_exec.shutdown(wait: false)
+      m1 = Thread::Mutex.new
 
-        sleep(0.02 * sleep_mult)
+      future1 = m1.synchronize do
+        executor.submit(executor, m1) do |meta_exec, mtx|
+          meta_exec.shutdown(wait: false)
 
-        assert_raises(RuntimeError) { meta_exec.submit { 1234 } }
+          mtx.synchronize { nil }
+
+          assert_raises(RuntimeError) { meta_exec.submit { 1234 } }
+        end.tap do |f1| # rubocop:disable Style/MultilineBlockChain
+          # The parent future should *not* be run immediately.
+          refute_predicate f1, :done?
+        end
       end
-
-      # The parent future should *not* be run immediately.
-      refute_predicate future1, :done?
 
       exc = future1.result
 
@@ -94,14 +102,16 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
   def test_concurrent_submission_success
     AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
-      future1 = executor.submit_concurrent(@sleep_mult) do |sleep_mult|
-        sleep(0.02 * sleep_mult)
+      m1 = Thread::Mutex.new
 
-        1234
+      future1 = m1.synchronize do
+        executor.submit_concurrent(m1) do |mtx|
+          mtx.synchronize { 1234 }
+        end.tap do |f1| # rubocop:disable Style/MultilineBlockChain
+          # The concurrent future should *not* be completed.
+          refute_predicate f1, :done?
+        end
       end
-
-      # The parent future should *not* be run immediately.
-      refute_predicate future1, :done?
 
       assert_equal 1234, future1.result
     end
@@ -117,16 +127,20 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
   def test_concurrent_submission_deadlocking
     AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
-      future1 = executor.submit(executor, @sleep_mult) do |meta_exec, sleep_mult|
-        sleep(0.02 * sleep_mult)
+      m1 = Thread::Mutex.new
 
-        assert_raises(AsyncFutures::NoConcurrencyError) do
-          meta_exec.submit_concurrent { 1234 }
+      future1 = m1.synchronize do
+        executor.submit(executor, m1) do |meta_exec, mtx|
+          mtx.synchronize do
+            assert_raises(AsyncFutures::NoConcurrencyError) do
+              meta_exec.submit_concurrent { 1234 }
+            end
+          end
+        end.tap do |f1| # rubocop:disable Style/MultilineBlockChain
+          # The future should *not* be completed.
+          refute_predicate f1, :done?
         end
       end
-
-      # The parent future should *not* be run immediately.
-      refute_predicate future1, :done?
 
       exc = future1.result
 
@@ -136,18 +150,22 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
   def test_concurrent_submission_after_shutdown_single_worker
     AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
-      future1 = executor.submit(executor, @sleep_mult) do |meta_exec, sleep_mult|
-        sleep(0.02 * sleep_mult)
+      m1 = Thread::Mutex.new
 
-        meta_exec.shutdown(wait: false)
+      future1 = m1.synchronize do
+        executor.submit(executor, m1) do |meta_exec, mtx|
+          mtx.synchronize do
+            meta_exec.shutdown(wait: false)
 
-        assert_raises(RuntimeError) do
-          meta_exec.submit_concurrent { 1234 }
+            assert_raises(RuntimeError) do
+              meta_exec.submit_concurrent { 1234 }
+            end
+          end
+        end.tap do |f1| # rubocop:disable Style/MultilineBlockChain
+          # The future should *not* be completed.
+          refute_predicate f1, :done?
         end
       end
-
-      # The parent future should *not* be run immediately.
-      refute_predicate future1, :done?
 
       exc = future1.result
 
@@ -157,18 +175,22 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
   def test_concurrent_submission_after_shutdown_multi_worker
     AsyncFutures::ThreadExecutor.new(max_workers: 2).shutdown do |executor|
-      future1 = executor.submit(executor, @sleep_mult) do |meta_exec, sleep_mult|
-        sleep(0.02 * sleep_mult)
+      m1 = Thread::Mutex.new
 
-        meta_exec.shutdown(wait: false)
+      future1 = m1.synchronize do
+        executor.submit(executor, m1) do |meta_exec, mtx|
+          mtx.synchronize do
+            meta_exec.shutdown(wait: false)
 
-        assert_raises(RuntimeError) do
-          meta_exec.submit_concurrent { 1234 }
+            assert_raises(RuntimeError) do
+              meta_exec.submit_concurrent { 1234 }
+            end
+          end
+        end.tap do |f1| # rubocop:disable Style/MultilineBlockChain
+          # The future should *not* be completed.
+          refute_predicate f1, :done?
         end
       end
-
-      # The parent future should *not* be run immediately.
-      refute_predicate future1, :done?
 
       exc = future1.result
 
@@ -220,9 +242,9 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def test_only_one_worker # rubocop:disable Metrics/AbcSize
     AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
       before_count = Thread.list.size
-      future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
-      future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
-      future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future1 = executor.submit(1) { |n| n }
+      future2 = executor.submit(2) { |n| n }
+      future3 = executor.submit(3) { |n| n }
       future1.result
       future2.result
       future3.result
@@ -285,29 +307,38 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
   def test_cancel_futures_manually # rubocop:disable Metrics/AbcSize
     AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
-      future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
-      future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
-      future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      m1 = Thread::Mutex.new
+
+      m1.lock
+
+      future1 = executor.submit(m1) { |mtx| mtx.synchronize { 1 } }
+      future2 = executor.submit(m1) { |mtx| mtx.synchronize { 2 } }
+      future3 = executor.submit(m1) { |mtx| mtx.synchronize { 3 } }
 
       assert_predicate future2, :pending?
       assert_predicate future3, :pending?
 
       future2.cancel
       future3.cancel
+
+      m1.unlock
+
       future1.result
 
       refute_predicate future1, :cancelled?
       assert_predicate future2, :cancelled?
       assert_predicate future3, :cancelled?
+    ensure
+      m1.unlock if m1.locked?
     end
   end
 
   def test_reap_after # rubocop:disable Metrics/AbcSize
     AsyncFutures::ThreadExecutor.new(max_workers: 1, reap_after: 0.03 * @sleep_mult).shutdown do |executor|
       count1 = Thread.list.size
-      future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
-      future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
-      future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future1 = executor.submit { 1 }
+      future2 = executor.submit { 2 }
+      future3 = executor.submit { 3 }
       future1.result
       future2.result
       future3.result
@@ -324,9 +355,9 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def test_no_reap_after # rubocop:disable Metrics/AbcSize
     AsyncFutures::ThreadExecutor.new(max_workers: 1, reap_after: nil).shutdown do |executor|
       count1 = Thread.list.size
-      future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
-      future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
-      future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
+      future1 = executor.submit { 1 }
+      future2 = executor.submit { 2 }
+      future3 = executor.submit { 3 }
       future1.result
       future2.result
       future3.result
