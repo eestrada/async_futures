@@ -4,18 +4,15 @@ require_relative 'minitest_helper'
 
 class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def setup
-    @sleep_mult = case RUBY_ENGINE
-                  when /jruby/
-                    skip 'jruby stalls indefinitly'
-                    8
-                  when /truffleruby/
-                    skip 'truffleruby does not support the Fiber::Scheduler interface yet'
-                    8
-                  else
-                    require 'async_futures/fiber_executor'
-                    require 'async'
-                    1
-                  end
+    case RUBY_ENGINE
+    when /jruby/
+      skip 'jruby stalls indefinitly'
+    when /truffleruby/
+      skip 'truffleruby does not support the Fiber::Scheduler interface yet'
+    else
+      require 'async_futures/fiber_executor'
+      require 'async'
+    end
 
     @scheduler = Async::Scheduler.new
     Fiber.set_scheduler @scheduler
@@ -122,7 +119,6 @@ class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
       before = Time.now
       AsyncFutures::FiberExecutor.new.shutdown(wait: false) do |executor|
         executor.submit { sleep 0.02 }
-        sleep 0.01
       end
       after = Time.now
 
@@ -139,7 +135,6 @@ class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
       before = Time.now
       AsyncFutures::FiberExecutor.new.shutdown(wait: true) do |executor|
         executor.submit { sleep 0.02 }
-        sleep 0.01
       end
       after = Time.now
 
@@ -160,12 +155,15 @@ class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_non_blocking_submit_with_blocking_shutdown
-    Fiber.schedule do
-      @executor.submit { sleep(0.02) }
-    end
-    exc = assert_raises(AsyncFutures::DeadlockError) { @executor.shutdown(wait: true) }
+    m1 = Thread::Mutex.new
+    m1.synchronize do
+      Fiber.schedule do
+        @executor.submit { m1.synchronize { 1 } }
+      end
+      exc = assert_raises(AsyncFutures::DeadlockError) { @executor.shutdown(wait: true) }
 
-    assert_match(/^Future would deadlock: #<AsyncFutures::Future:\w+>$/, exc.message)
+      assert_match(/^Future would deadlock: #<AsyncFutures::Future:\w+>$/, exc.message)
+    end
   end
 
   def test_cancel_futures_in_shutdown # rubocop:disable Metrics/AbcSize
@@ -216,12 +214,18 @@ class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def test_cancel_futures_manually # rubocop:disable Metrics/AbcSize
     Fiber.schedule do
       AsyncFutures::FiberExecutor.new.shutdown do |executor|
-        future1 = executor.submit { sleep(0.02) }
-        future2 = executor.submit { sleep(0.02) }
-        future3 = executor.submit { sleep(0.02) }
+        m1 = Thread::Mutex.new
+
+        m1.lock
+
+        future1 = executor.submit(m1) { |mtx| mtx.synchronize { 1 } }
+        future2 = executor.submit(m1) { |mtx| mtx.synchronize { 2 } }
+        future3 = executor.submit(m1) { |mtx| mtx.synchronize { 3 } }
 
         assert_predicate future2, :running?
         assert_predicate future3, :running?
+
+        m1.unlock
 
         future2.cancel
         future3.cancel
@@ -232,6 +236,8 @@ class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
         refute_predicate future1, :cancelled?
         refute_predicate future2, :cancelled?
         refute_predicate future3, :cancelled?
+      ensure
+        m1.unlock if m1.locked?
       end
     end
   end
