@@ -7,14 +7,51 @@ require 'openssl'
 require 'set' # rubocop:disable Lint/RedundantRequireStatement
 
 module AsyncFutures
-  # Simple example mixin for async IO.
+  # This is a simple example mixin module
+  # to add async IO to the `IO` and `OpenSSL::SSLSocket` classes.
+  # You can also `include` this in other classes
+  # so long as they have the methods `write_nonblock` and `read_nonblock`
+  # and they behave the same way as `IO` and/or `OpenSSL::SSLSocket`.
   #
-  # All reads and writes are done on a single background worker thread.
+  # All reads and writes are done on (at least) one background worker thread.
   #
   # This is not the most efficient implementation.
   # It is just meant to be an example
   # of how one can use the `Future` class
   # outside of an `Executor` implementation.
+  #
+  # It's only real efficiencies, so to speak,
+  # are that it doesn't use a thread per future
+  # (which would potentially use up a lot of memory),
+  # nor do futures need to wait until a thread opens up on a worker pool
+  # (which would block newer IO work until older IO work completely finished).
+  # Instead work is picked up immediately
+  # on at least one background worker thread,
+  # and attempts to read/write are started immediately
+  # via `read_nonblock` and `write_nonblock`.
+  # If `read_nonblock`/`write_nonblock` cannot proceed
+  # (because they would block)
+  # for any particular `IO` object
+  # then the next operation for the next `IO` object is attempted,
+  # and so forth,
+  # until all the work is completed (or a timeout happens).
+  #
+  # However, all of this is accomplished via a simplistic, unoptimized busy loop.
+  # This is less than ideal.
+  # There are some simple sleeps and timeouts added
+  # to avoid completely eating up the CPU,
+  # but this is still a very naive approach.
+  #
+  # A better implementation would utilize higher performance OS specific features
+  # like FreeBSD's kqueue/aio or Linux's epoll/io_uring.
+  # However, the logic for integrating these
+  # is beyond the scope of this example code.
+  #
+  # This could probably be done using the FFI library fiddle,
+  # which is bundled with ruby,
+  # so it wouldn't need to reach outside the standard library.
+  # However I have a very good reason for not doing that right now:
+  # I don't want to.
   module IOAsync
     # Return an incomplete future
     # that will eventually contain an integer with the number of bytes written
@@ -214,7 +251,7 @@ module AsyncFutures
     # containing an integer with the number of bytes written.
     #
     # This exists for classes such as `StringIO` to maintain compatibility
-    # with classes with true nonblocking reading methods (such as `IO`).
+    # with classes with true nonblocking methods (such as `IO`).
     #
     # There is no performance benefit
     # to calling this instead of directly calling `write`.
@@ -239,7 +276,7 @@ module AsyncFutures
     # containing a string up to `maxlen` bytes long.
     #
     # This exists for classes such as `StringIO` to maintain compatibility
-    # with classes with true nonblocking reading methods (such as `IO`).
+    # with classes with true nonblocking methods (such as `IO`).
     #
     # There is no performance benefit
     # to calling this instead of directly calling `read`.
