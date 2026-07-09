@@ -6,7 +6,7 @@ require 'tempfile'
 require 'minitest/mock'
 require 'async_futures/io_async'
 
-class TestIOAsync < Minitest::Test
+class TestIOAsync < Minitest::Test # rubocop:disable Metrics/ClassLength
   def test_stringio
     str = String.new('hello')
     sio = StringIO.new(str)
@@ -44,8 +44,6 @@ class TestIOAsync < Minitest::Test
   end
 
   def test_io_async_read_partial
-    require 'tempfile'
-
     Tempfile.create do |tf|
       tf.write 'foo'
       tf.rewind
@@ -113,6 +111,113 @@ class TestIOAsync < Minitest::Test
 
       tf.stub(:read_nonblock, waitreadable_proc) do
         f1 = tf.read_async(2)
+
+        assert_instance_of AsyncFutures::Future, f1
+
+        exc = assert_raises(StandardError) { f1.result(0.1) }
+
+        assert_match(/Test exception/, exc.message)
+      end
+    end
+  end
+
+  def test_io_async_write_to_eof
+    Tempfile.create do |tf|
+      f1 = tf.write_async('foo')
+
+      assert_instance_of AsyncFutures::Future, f1
+
+      result = f1.result(1)
+
+      assert_equal 3, result
+
+      # Should not be run on main thread
+      refute_same Thread.current, f1.thread
+    end
+  end
+
+  def test_io_async_write_partial # rubocop:disable Metrics/AbcSize
+    Tempfile.create do |tf|
+      mtx = Thread::Mutex.new
+      mtx.lock
+
+      test_error = StandardError.new
+
+      test_error.extend(IO::WaitWritable)
+
+      waitwritable_proc = proc do
+        if mtx.locked?
+          mtx.synchronize { 2 }
+        else
+          1
+        end
+      end
+
+      tf.stub(:write_nonblock, waitwritable_proc) do
+        f1 = tf.write_async('foo')
+
+        assert_instance_of AsyncFutures::Future, f1
+
+        assert_raises(Timeout::Error) { f1.result(0.1) }
+        mtx.unlock
+
+        result = f1.result(1)
+
+        assert_equal 3, result
+
+        # Should not be run on main thread
+        refute_same Thread.current, f1.thread
+      end
+    ensure
+      mtx.unlock if mtx.locked?
+    end
+  end
+
+  def test_io_async_write_raise_waitwritable # rubocop:disable Metrics/AbcSize
+    Tempfile.create do |tf|
+      mtx = Thread::Mutex.new
+      mtx.lock
+
+      test_error = StandardError.new
+
+      test_error.extend(IO::WaitWritable)
+
+      waitwritable_proc = proc do
+        raise test_error if mtx.locked?
+
+        2
+      end
+
+      tf.stub(:write_nonblock, waitwritable_proc) do
+        f1 = tf.write_async('fo')
+
+        assert_instance_of AsyncFutures::Future, f1
+
+        assert_raises(Timeout::Error) { f1.result(0.1) }
+
+        mtx.unlock
+        result = f1.result(1)
+
+        assert_equal 2, result
+
+        # Should not be run on main thread
+        refute_same Thread.current, f1.thread
+      end
+    ensure
+      mtx.unlock if mtx.locked?
+    end
+  end
+
+  def test_io_async_write_raise_exception
+    Tempfile.create do |tf|
+      test_error = StandardError.new('Test exception')
+
+      waitreadable_proc = proc do
+        raise test_error
+      end
+
+      tf.stub(:write_nonblock, waitreadable_proc) do
+        f1 = tf.write_async('foo')
 
         assert_instance_of AsyncFutures::Future, f1
 

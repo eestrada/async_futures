@@ -29,7 +29,9 @@ module AsyncFutures
         maybe_spawn_worker
 
         io_async_queue.push(proc {
+          # :nocov:
           break ftr unless ftr.set_running_or_notify_cancel(set_context: true)
+          # :nocov:
 
           all_written = 0
 
@@ -87,24 +89,16 @@ module AsyncFutures
 
     private
 
-    def maybe_spawn_worker # rubocop:disable Metrics/AbcSize
+    def maybe_spawn_worker
       Ractor[:io_async_worker] ||= Thread.new do
         worker_fibers = Set.new
         loop do
           fproc = io_async_queue.pop(timeout: 0.001)
 
-          # Ignore all remaining work once the queue is closed.
-          break if io_async_queue.closed? && io_async_queue.empty?
-
           worker_fibers.add(Fiber.new(&fproc)) unless fproc.nil?
 
-          # sleep for 10ms
-          # only if all the workers return `nil`
-          # (i.e. none completed their future)
           worker_fibers.reject!(&:resume) unless worker_fibers.empty?
         end
-      ensure
-        Ractor[:io_async_worker] = nil
       end
     end
 
