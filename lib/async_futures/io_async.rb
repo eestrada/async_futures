@@ -2,6 +2,7 @@
 
 require_relative 'future'
 
+require 'openssl'
 require 'set' # rubocop:disable Lint/RedundantRequireStatement
 
 module AsyncFutures
@@ -28,7 +29,7 @@ module AsyncFutures
         maybe_spawn_worker
 
         io_async_queue.push(proc {
-          break ftr unless ftr.set_running_or_notify_cancel
+          break ftr unless ftr.set_running_or_notify_cancel(set_context: true)
 
           all_written = 0
 
@@ -56,20 +57,22 @@ module AsyncFutures
     #
     # If the process shuts down before the future can be completed,
     # the work will be abandoned even if it partially completed.
-    def read_async(maxlen = nil) # rubocop:disable Metrics/AbcSize
+    def read_async(maxlen) # rubocop:disable Metrics/AbcSize
       Future.new.tap do |ftr|
         maybe_spawn_worker
 
         io_async_queue.push(proc {
-          break ftr unless ftr.set_running_or_notify_cancel
+          # :nocov:
+          break ftr unless ftr.set_running_or_notify_cancel(set_context: true)
+          # :nocov:
 
           to_read_length = maxlen
           retrieved_str = String.new
 
           loop do
             retrieved_str << read_nonblock(to_read_length)
-            to_read_length = maxlen - retrieved_str.size unless maxlen.nil?
-            break ftr.tap { ftr.set_result(retrieved_str) } unless maxlen.nil? || to_read_length.positive?
+            to_read_length = maxlen - retrieved_str.size
+            break ftr.tap { ftr.set_result(retrieved_str) } if to_read_length.zero?
           rescue IO::WaitReadable, IO::WaitWritable, Errno::EINTR
             Fiber.yield nil
             retry
@@ -84,29 +87,29 @@ module AsyncFutures
 
     private
 
-    def maybe_spawn_worker
-      Ractor.store_if_absent(:io_async_worker) do
-        Thread.new do
-          worker_fibers = Set.new
-          while (fproc = io_async_queue.pop(timeout: 0))
-            # Ignore all remaining work once the queue is closed.
-            break if io_async_queue.closed?
+    def maybe_spawn_worker # rubocop:disable Metrics/AbcSize
+      Ractor[:io_async_worker] ||= Thread.new do
+        worker_fibers = Set.new
+        loop do
+          fproc = io_async_queue.pop(timeout: 0.001)
 
-            worker_fibers.add(Fiber.new(&fproc)) unless fproc.nil?
+          # Ignore all remaining work once the queue is closed.
+          break if io_async_queue.closed? && io_async_queue.empty?
 
-            # sleep for 10ms
-            # only if all the workers return `nil`
-            # (i.e. none completed their future)
-            sleep(0.01) unless worker_fibers.reject!(&:resume)
-          end
+          worker_fibers.add(Fiber.new(&fproc)) unless fproc.nil?
+
+          # sleep for 10ms
+          # only if all the workers return `nil`
+          # (i.e. none completed their future)
+          worker_fibers.reject!(&:resume) unless worker_fibers.empty?
         end
+      ensure
+        Ractor[:io_async_worker] = nil
       end
     end
 
     def io_async_queue
-      Ractor.store_if_absent(:io_async_queue) do
-        Thread::Queue.new.tap { |q| at_exit { q.close } }
-      end
+      Ractor.store_if_absent(:io_async_queue) { Thread::Queue.new }
     end
   end
 
@@ -140,14 +143,8 @@ module AsyncFutures
   end
 end
 
-class ::IO # rubocop:disable Style/OneClassPerFile
-  include ::AsyncFutures::IOAsync
-end
+IO.include AsyncFutures::IOAsync
 
-class ::OpenSSL::SSL::SSLSocket # rubocop:disable Style/OneClassPerFile,Style/ClassAndModuleChildren
-  include ::AsyncFutures::IOAsync
-end
+OpenSSL::SSL::SSLSocket.include AsyncFutures::IOAsync
 
-class ::StringIO # rubocop:disable Style/OneClassPerFile
-  include ::AsyncFutures::IOSync
-end
+StringIO.include AsyncFutures::IOSync
