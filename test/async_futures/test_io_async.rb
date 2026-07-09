@@ -7,6 +7,8 @@ require 'minitest/mock'
 
 class TestIOAsync < Minitest::Test # rubocop:disable Metrics/ClassLength
   def setup
+    skip "ractor_executor not supported in version '#{RUBY_VERSION}'" if RUBY_VERSION =~ /^3\.3/
+
     skip "IOAsync not supported in engine '#{RUBY_ENGINE}'" if RUBY_ENGINE =~ /jruby/ || RUBY_ENGINE =~ /truffleruby/
 
     require 'async_futures/io_async'
