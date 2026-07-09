@@ -2,6 +2,7 @@
 
 require_relative 'future'
 
+require 'timeout'
 require 'openssl'
 require 'set' # rubocop:disable Lint/RedundantRequireStatement
 
@@ -22,26 +23,56 @@ module AsyncFutures
     # The `string` argument is written in a nonblocking fashion
     # on a background worker thread.
     #
-    # If the process shuts down before the future can be completed,
-    # the work may be abandoned even if it partially completed.
+    # The optional `timeout` argument
+    # causes the work to finish the future exceptionally with `Timeout::Error`
+    # if it takes longer than `timeout` seconds to complete.
+    # This is used to avoid having background work that spins forever
+    # on IO that may never complete.
+    # If `nil` or no value is given, this means no timeout
+    # (i.e. potentially spin indefinitely).
     #
-    # The optional `sleep_timeout` argument
+    # This should *not* be confused with the `Timeout::Error` raised via the
+    # `timeout` argument on `Future.result` and `Future.exception`.
+    # If it matters for your purposes to differentiate between the two,
+    # you can do something like the following:
+    #
+    # ```ruby
+    # # `join` returns `nil` on timeout
+    # result = if future.join(1.0)
+    #            # If `Timeout::Error` is raised here,
+    #            # it is from the `timeout` parameter to the `*_async` method.
+    #            future.result
+    #          else
+    #            raise Timeout::Error.new('Timed out on `join`')
+    #          end
+    # ```
+    #
+    # The optional `sleep_timeout` keyword argument
     # is used to determine how quickly the worker thread
     # stops polling the input work queue
     # and how much sleep time happens between failed nonblocking IO attempts.
     # It defaults to 1ms.
     # If existing worker(s) have already been spawned,
     # then this argument isn't used.
-    def write_async(string, sleep_timeout = 0.001) # rubocop:disable Metrics/AbcSize
+    #
+    # If the process shuts down before the future can be fully completed,
+    # the work may be abandoned even if it partially completed.
+    def write_async(string, timeout = nil, sleep_timeout: 0.001) # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity
       Future.new.tap do |ftr|
-        io_async_queue.push(proc {
+        clock_timeout = timeout && (Time.now.to_f + timeout)
+
+        work_proc = proc do
           # :nocov:
           break ftr unless ftr.set_running_or_notify_cancel(set_context: true)
           # :nocov:
 
+          to_err = Timeout::Error.new('execution expired')
           all_written = 0
 
           loop do
+            cur_to = timeout && (Time.now.to_f - clock_timeout)
+            break ftr.tap { ftr.set_exception(to_err) } unless timeout.nil? || cur_to.positive?
+
             bytes_written = write_nonblock(string)
             string = string[bytes_written..nil]
             all_written += bytes_written
@@ -52,8 +83,9 @@ module AsyncFutures
           rescue Exception => e # rubocop:disable Lint/RescueException
             break ftr.tap { ftr.set_exception(e) }
           end
-        })
+        end
 
+        io_async_queue.push(work_proc)
         maybe_spawn_worker(sleep_timeout)
       end
     end
@@ -65,27 +97,57 @@ module AsyncFutures
     # A string up to `maxlen` in length is read in a nonblocking fashion
     # on a background worker thread.
     #
-    # If the process shuts down before the future can be completed,
-    # the work may be abandoned even if it partially completed.
+    # The optional `timeout` argument
+    # causes the work to finish the future exceptionally with `Timeout::Error`
+    # if it takes longer than `timeout` seconds to complete.
+    # This is used to avoid having background work that spins forever
+    # on IO that may never complete.
+    # If `nil` or no value is given, this means no timeout
+    # (i.e. potentially spin indefinitely).
     #
-    # The optional `sleep_timeout` argument
+    # This should *not* be confused with the `Timeout::Error` raised via the
+    # `timeout` argument on `Future.result` and `Future.exception`.
+    # If it matters for your purposes to differentiate between the two,
+    # you can do something like the following:
+    #
+    # ```ruby
+    # # `join` returns `nil` on timeout
+    # result = if future.join(1.0)
+    #            # If `Timeout::Error` is raised here,
+    #            # it is from the `timeout` parameter to the `*_async` method.
+    #            future.result
+    #          else
+    #            raise Timeout::Error.new('Timed out on `join`')
+    #          end
+    # ```
+    #
+    # The optional `sleep_timeout` keyword argument
     # is used to determine how quickly the worker thread
     # stops polling the input work queue
     # and how much sleep time happens between failed nonblocking IO attempts.
     # It defaults to 1ms.
     # If existing worker(s) have already been spawned,
     # then this argument isn't used.
-    def read_async(maxlen, sleep_timeout = 0.001) # rubocop:disable Metrics/AbcSize
+    #
+    # If the process shuts down before the future can be fully completed,
+    # the work may be abandoned even if it partially completed.
+    def read_async(maxlen, timeout = nil, sleep_timeout: 0.001) # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity
       Future.new.tap do |ftr|
-        io_async_queue.push(proc {
+        clock_timeout = timeout && (Time.now.to_f + timeout)
+
+        work_proc = proc do
           # :nocov:
           break ftr unless ftr.set_running_or_notify_cancel(set_context: true)
           # :nocov:
 
+          to_err = Timeout::Error.new('execution expired')
           to_read_length = maxlen
           retrieved_str = String.new
 
           loop do
+            cur_to = timeout && (Time.now.to_f - clock_timeout)
+            break ftr.tap { ftr.set_exception(to_err) } unless timeout.nil? || cur_to.positive?
+
             retrieved_str << read_nonblock(to_read_length)
             to_read_length = maxlen - retrieved_str.size
             break ftr.tap { ftr.set_result(retrieved_str) } if to_read_length.zero?
@@ -97,8 +159,9 @@ module AsyncFutures
           rescue Exception => e # rubocop:disable Lint/RescueException
             break ftr.tap { ftr.set_exception(e) }
           end
-        })
+        end
 
+        io_async_queue.push(work_proc)
         maybe_spawn_worker(sleep_timeout)
       end
     end
@@ -150,11 +213,23 @@ module AsyncFutures
     # Return a completed future
     # containing an integer with the number of bytes written.
     #
-    # This exists for compatibility
-    # with classes with true nonblocking reading methods.
+    # This exists for classes such as `StringIO` to maintain compatibility
+    # with classes with true nonblocking reading methods (such as `IO`).
+    #
     # There is no performance benefit
     # to calling this instead of directly calling `write`.
-    def write_async(string)
+    # In fact,
+    # there may be a slight performance degradation
+    # because of the added overhead of instantiating
+    # and completing a `Future` object.
+    #
+    # You should only use this method if you are dealing with a mix
+    # of `IO`, `OpenSSL::SSLSocket`, and/or `StringIO` objects
+    # and want to interact with them identically in a nonblocking manner.
+    # Or you may want to use this method with `StringIO`
+    # as a type of mock object for testing
+    # in place of real `IO` or `OpenSSL::SSLSocket` objects.
+    def write_async(string, *args, **kwargs) # rubocop:disable Lint/UnusedMethodArgument
       Future.new.tap do |ftr|
         ftr.complete(string, &method(:write))
       end
@@ -163,11 +238,23 @@ module AsyncFutures
     # Return a completed future
     # containing a string up to `maxlen` bytes long.
     #
-    # This exists for compatibility
-    # with classes with true nonblocking reading methods.
+    # This exists for classes such as `StringIO` to maintain compatibility
+    # with classes with true nonblocking reading methods (such as `IO`).
+    #
     # There is no performance benefit
     # to calling this instead of directly calling `read`.
-    def read_async(maxlen = nil)
+    # In fact,
+    # there may be a slight performance degradation
+    # because of the added overhead of instantiating
+    # and completing a `Future` object.
+    #
+    # You should only use this method if you are dealing with a mix
+    # of `IO`, `OpenSSL::SSLSocket`, and/or `StringIO` objects
+    # and want to interact with them identically in a nonblocking manner.
+    # Or you may want to use this method with `StringIO`
+    # as a type of mock object for testing
+    # in place of real `IO` or `OpenSSL::SSLSocket` objects.
+    def read_async(maxlen, *args, **kwargs) # rubocop:disable Lint/UnusedMethodArgument
       Future.new.tap do |ftr|
         ftr.complete(maxlen, &method(:read))
       end

@@ -20,7 +20,7 @@ module AsyncFutures
   # with any other particular task;
   # that is dependent on how many worker threads and tasks there are
   # at any given point in time.
-  class ThreadExecutor
+  class ThreadExecutor # rubocop:disable Metrics/ClassLength
     include Executor
 
     # Create a new `ThreadExecutor`.
@@ -105,6 +105,11 @@ module AsyncFutures
       rescue ClosedQueueError
         raise shutdown_msg
       end
+    end
+
+    # Return the current size of the worker pool
+    def pool_size
+      synchronize { @pool.size }
     end
 
     # :nocov:

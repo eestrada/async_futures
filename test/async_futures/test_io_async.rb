@@ -98,6 +98,32 @@ class TestIOAsync < Minitest::Test # rubocop:disable Metrics/ClassLength
     end
   end
 
+  def test_io_async_read_raise_timeout_exception
+    Tempfile.create do |tf|
+      mtx = Thread::Mutex.new
+      mtx.lock
+
+      waitreadable_proc = proc do
+        mtx.synchronize { 2 }
+      end
+
+      tf.write 'foo'
+      tf.rewind
+
+      tf.stub(:read_nonblock, waitreadable_proc) do
+        f1 = tf.read_async(2, 0.01)
+
+        f1.join(0.05)
+        mtx.unlock
+        result = f1.exception(1)
+
+        assert_instance_of Timeout::Error, result
+      end
+    ensure
+      mtx.unlock if mtx.locked?
+    end
+  end
+
   def test_io_async_read_raise_exception
     Tempfile.create do |tf|
       tf.write 'foo'
@@ -141,10 +167,6 @@ class TestIOAsync < Minitest::Test # rubocop:disable Metrics/ClassLength
       mtx = Thread::Mutex.new
       mtx.lock
 
-      test_error = StandardError.new
-
-      test_error.extend(IO::WaitWritable)
-
       waitwritable_proc = proc do
         if mtx.locked?
           mtx.synchronize { 2 }
@@ -179,9 +201,7 @@ class TestIOAsync < Minitest::Test # rubocop:disable Metrics/ClassLength
       mtx.lock
 
       test_error = StandardError.new
-
       test_error.extend(IO::WaitWritable)
-
       waitwritable_proc = proc do
         raise test_error if mtx.locked?
 
@@ -192,9 +212,7 @@ class TestIOAsync < Minitest::Test # rubocop:disable Metrics/ClassLength
         f1 = tf.write_async('fo')
 
         assert_instance_of AsyncFutures::Future, f1
-
         assert_raises(Timeout::Error) { f1.result(0.05) }
-
         mtx.unlock
         result = f1.result(1)
 
@@ -208,15 +226,43 @@ class TestIOAsync < Minitest::Test # rubocop:disable Metrics/ClassLength
     end
   end
 
+  def test_io_async_write_raise_timeout_error # rubocop:disable Metrics/AbcSize
+    Tempfile.create do |tf|
+      mtx = Thread::Mutex.new
+      mtx.lock
+
+      waitwritable_proc = proc do
+        mtx.synchronize { 2 }
+      end
+
+      tf.stub(:write_nonblock, waitwritable_proc) do
+        f1 = tf.write_async('fo', 0.03)
+
+        assert_instance_of AsyncFutures::Future, f1
+
+        f1.join(0.05)
+        mtx.unlock
+        result = f1.exception(1)
+
+        assert_instance_of Timeout::Error, result
+
+        # Should not be run on main thread
+        refute_same Thread.current, f1.thread
+      end
+    ensure
+      mtx.unlock if mtx.locked?
+    end
+  end
+
   def test_io_async_write_raise_exception
     Tempfile.create do |tf|
       test_error = StandardError.new('Test exception')
 
-      waitreadable_proc = proc do
+      write_nonblock_proc = proc do
         raise test_error
       end
 
-      tf.stub(:write_nonblock, waitreadable_proc) do
+      tf.stub(:write_nonblock, write_nonblock_proc) do
         f1 = tf.write_async('foo')
 
         assert_instance_of AsyncFutures::Future, f1

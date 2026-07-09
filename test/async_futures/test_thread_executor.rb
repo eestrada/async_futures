@@ -41,11 +41,11 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_submit_raises_returns_exceptional_future
-    before_count = Thread.list.size
+    before_count = @executor.pool_size
     future1 = @executor.submit(1, 2, 3, 4, tell_me: 'that you love me more') do |*args, **kwargs|
       raise "Some runtime error #{args} #{kwargs}"
     end
-    after_count = Thread.list.size
+    after_count = @executor.pool_size
 
     assert_operator after_count, :>, before_count
     assert_instance_of AsyncFutures::Future, future1
@@ -239,16 +239,16 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     assert_match(/^best_\d+$/, result)
   end
 
-  def test_only_one_worker # rubocop:disable Metrics/AbcSize
+  def test_only_one_worker
     AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
-      before_count = Thread.list.size
+      before_count = executor.pool_size
       future1 = executor.submit(1) { |n| n }
       future2 = executor.submit(2) { |n| n }
       future3 = executor.submit(3) { |n| n }
       future1.result
       future2.result
       future3.result
-      after_count = Thread.list.size
+      after_count = executor.pool_size
 
       assert_operator after_count, :>, before_count
       assert_equal before_count + 1, after_count
@@ -335,17 +335,17 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
   def test_reap_after # rubocop:disable Metrics/AbcSize
     AsyncFutures::ThreadExecutor.new(max_workers: 1, reap_after: 0.03 * @sleep_mult).shutdown do |executor|
-      count1 = Thread.list.size
+      count1 = executor.pool_size
       future1 = executor.submit { 1 }
       future2 = executor.submit { 2 }
       future3 = executor.submit { 3 }
       future1.result
       future2.result
       future3.result
-      count2 = Thread.list.size
+      count2 = executor.pool_size
       # sleep should cause worker thread to self-reap
       sleep 0.05 * @sleep_mult
-      count3 = Thread.list.size
+      count3 = executor.pool_size
 
       assert_operator count2, :>, count1
       assert_operator count2, :>, count3
@@ -354,17 +354,17 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
   def test_no_reap_after # rubocop:disable Metrics/AbcSize
     AsyncFutures::ThreadExecutor.new(max_workers: 1, reap_after: nil).shutdown do |executor|
-      count1 = Thread.list.size
+      count1 = executor.pool_size
       future1 = executor.submit { 1 }
       future2 = executor.submit { 2 }
       future3 = executor.submit { 3 }
       future1.result
       future2.result
       future3.result
-      count2 = Thread.list.size
+      count2 = executor.pool_size
       # worker thread will never self-reap
       sleep 0.05 * @sleep_mult
-      count3 = Thread.list.size
+      count3 = executor.pool_size
 
       assert_operator count2, :>, count1
       refute_operator count2, :>, count3
