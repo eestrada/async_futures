@@ -83,7 +83,7 @@ class TestIOAsync < Minitest::Test # rubocop:disable Metrics/ClassLength
 
         assert_instance_of AsyncFutures::Future, f1
 
-        assert_raises(Timeout::Error) { f1.result(0.1) }
+        assert_raises(Timeout::Error) { f1.result(0.05) }
 
         mtx.unlock
         result = f1.result(1)
@@ -114,7 +114,7 @@ class TestIOAsync < Minitest::Test # rubocop:disable Metrics/ClassLength
 
         assert_instance_of AsyncFutures::Future, f1
 
-        exc = assert_raises(StandardError) { f1.result(0.1) }
+        exc = assert_raises(StandardError) { f1.result(0.05) }
 
         assert_match(/Test exception/, exc.message)
       end
@@ -158,7 +158,7 @@ class TestIOAsync < Minitest::Test # rubocop:disable Metrics/ClassLength
 
         assert_instance_of AsyncFutures::Future, f1
 
-        assert_raises(Timeout::Error) { f1.result(0.1) }
+        assert_raises(Timeout::Error) { f1.result(0.05) }
         mtx.unlock
 
         result = f1.result(1)
@@ -193,7 +193,7 @@ class TestIOAsync < Minitest::Test # rubocop:disable Metrics/ClassLength
 
         assert_instance_of AsyncFutures::Future, f1
 
-        assert_raises(Timeout::Error) { f1.result(0.1) }
+        assert_raises(Timeout::Error) { f1.result(0.05) }
 
         mtx.unlock
         result = f1.result(1)
@@ -221,7 +221,7 @@ class TestIOAsync < Minitest::Test # rubocop:disable Metrics/ClassLength
 
         assert_instance_of AsyncFutures::Future, f1
 
-        exc = assert_raises(StandardError) { f1.result(0.1) }
+        exc = assert_raises(StandardError) { f1.result(0.05) }
 
         assert_match(/Test exception/, exc.message)
       end

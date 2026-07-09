@@ -19,15 +19,21 @@ module AsyncFutures
     # that will eventually contain an integer with the number of bytes written
     # or an exception if the string could not be written for some reason.
     #
-    # The string is written in a nonblocking fashion
+    # The `string` argument is written in a nonblocking fashion
     # on a background worker thread.
     #
     # If the process shuts down before the future can be completed,
-    # the work will be abandoned even if it partially completed.
-    def write_async(string) # rubocop:disable Metrics/AbcSize
+    # the work may be abandoned even if it partially completed.
+    #
+    # The optional `sleep_timeout` argument
+    # is used to determine how quickly the worker thread
+    # stops polling the input work queue
+    # and how much sleep time happens between failed nonblocking IO attempts.
+    # It defaults to 1ms.
+    # If existing worker(s) have already been spawned,
+    # then this argument isn't used.
+    def write_async(string, sleep_timeout = 0.001) # rubocop:disable Metrics/AbcSize
       Future.new.tap do |ftr|
-        maybe_spawn_worker
-
         io_async_queue.push(proc {
           # :nocov:
           break ftr unless ftr.set_running_or_notify_cancel(set_context: true)
@@ -47,6 +53,8 @@ module AsyncFutures
             break ftr.tap { ftr.set_exception(e) }
           end
         })
+
+        maybe_spawn_worker(sleep_timeout)
       end
     end
 
@@ -54,15 +62,21 @@ module AsyncFutures
     # that will eventually contain the string value read from the IO object
     # or an exception if the IO object could not be read from for some reason.
     #
-    # The string is read in a nonblocking fashion
+    # A string up to `maxlen` in length is read in a nonblocking fashion
     # on a background worker thread.
     #
     # If the process shuts down before the future can be completed,
-    # the work will be abandoned even if it partially completed.
-    def read_async(maxlen) # rubocop:disable Metrics/AbcSize
+    # the work may be abandoned even if it partially completed.
+    #
+    # The optional `sleep_timeout` argument
+    # is used to determine how quickly the worker thread
+    # stops polling the input work queue
+    # and how much sleep time happens between failed nonblocking IO attempts.
+    # It defaults to 1ms.
+    # If existing worker(s) have already been spawned,
+    # then this argument isn't used.
+    def read_async(maxlen, sleep_timeout = 0.001) # rubocop:disable Metrics/AbcSize
       Future.new.tap do |ftr|
-        maybe_spawn_worker
-
         io_async_queue.push(proc {
           # :nocov:
           break ftr unless ftr.set_running_or_notify_cancel(set_context: true)
@@ -84,20 +98,44 @@ module AsyncFutures
             break ftr.tap { ftr.set_exception(e) }
           end
         })
+
+        maybe_spawn_worker(sleep_timeout)
       end
     end
 
     private
 
-    def maybe_spawn_worker
+    # This method will spawn *at least* one worker thread.
+    # It *may* spawn more than one worker thread
+    # based on submission thread timing,
+    # but that is ok,
+    # because they will all eventually reap once they run out of work
+    # and the individual work is grabbed exclusively per thread
+    # via the thread safe queue.
+    #
+    # If work starts up again after reaping all threads,
+    # then new worker thread(s) will be spawned again.
+    def maybe_spawn_worker(sleep_timeout)
       Ractor[:io_async_worker] ||= Thread.new do
         worker_fibers = Set.new
-        loop do
-          fproc = io_async_queue.pop(timeout: 0.001)
 
-          worker_fibers.add(Fiber.new(&fproc)) unless fproc.nil?
+        while (fproc = io_async_queue.pop(timeout: sleep_timeout))
+          worker_fibers.add(Fiber.new(&fproc))
+          worker_fibers.reject!(&:resume)
+        end
 
-          worker_fibers.reject!(&:resume) unless worker_fibers.empty?
+        # We need to unset the worker thread
+        # since we're no longer polling the input queue.
+        #
+        # If more work comes in,
+        # new worker thread(s) need to be spawned.
+        Ractor[:io_async_worker] = nil
+
+        # FIXME: if we have IO that never finishes,
+        # this will create zombie threads that busy loop and never complete.
+        until worker_fibers.empty?
+          # Sleep when no fiber in the set completes
+          sleep(sleep_timeout) unless worker_fibers.reject!(&:resume)
         end
       end
     end
