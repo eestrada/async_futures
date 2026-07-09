@@ -240,8 +240,14 @@ module AsyncFutures
       end
     end
 
+    GLOBAL_MUTEX = Thread::Mutex.new
+
+    private_constant :GLOBAL_MUTEX
+
     def io_async_queue
-      Ractor.store_if_absent(:io_async_queue) { Thread::Queue.new }
+      GLOBAL_MUTEX.synchronize do
+        Ractor[:io_async_queue] ||= Thread::Queue.new
+      end
     end
   end
 
