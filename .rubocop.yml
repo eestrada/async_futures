@@ -9,6 +9,9 @@ AllCops:
 Style/SymbolArray:
   Enabled: false
 
+Style/SlicingWithRange:
+  Enabled: false
+
 Style/TrailingCommaInArguments:
   Enabled: false
 
