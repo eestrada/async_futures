@@ -14,14 +14,14 @@ require 'etc'
 require 'set' # rubocop:disable Lint/RedundantRequireStatement
 
 module AsyncFutures
-  # `Executor` implementation based on `Thread` primitives
+  # `Executor` implementation based on `Ractor` primitives
   # that uses a pool of up to `max_workers` to execute calls concurrently.
   #
   # `RactorExecutor` specific submission considerations:
   #
   # For `RactorExecutor` the tasks are never run immediately upon submission.
   # They are placed into a work queue
-  # to be picked up later by worker threads.
+  # to be picked up later by worker Ractors.
   #
   # This does _not_ guarantee
   # that any particular task will be run concurrently
@@ -92,18 +92,19 @@ module AsyncFutures
       @mutex = Thread::Mutex.new
       @condition = Thread::ConditionVariable.new
       @tasks = Thread::Queue.new
-      @available_workers = Thread::Queue.new
+      @ready_tasks_ports = Thread::Queue.new
 
       # All private variables after this point
       # require synchronization to safely interact with.
-      @work_ports = {}
+      @results_ports = {}
+      @monitor_ports = {}
+      @tasks_ports = {}
       @futures = {}
 
       # When Fibers are eventually supported,
       # a worker can/will have more than one future associated with it.
       @worker_futures = Hash.new { |hash, key| hash[key] = Set.new }
 
-      @results_ports = {}
       @pool = Set.new
       @worker_count = 0
 
@@ -169,7 +170,7 @@ module AsyncFutures
           end
         end
 
-        synchronize { wait_until { @available_workers.closed? && @available_workers.empty? } } if wait
+        synchronize { wait_until { @ready_tasks_ports.closed? && @ready_tasks_ports.empty? } } if wait
       end
     end
 
@@ -220,28 +221,29 @@ module AsyncFutures
 
           next unless future.set_running_or_notify_cancel
 
-          while (next_worker = @available_workers.pop)
-            break if synchronize do
-              # `block` was already made shareable
-              # in the submitting thread.
-              # `args` and `kwargs` _may_ have been made shareable already.
-              # `object_id` is an `Integer`
-              # and thus is inherently immutable and shareable.
-              ractor_task = [future.object_id, block, args, kwargs].freeze
+          # `block` was already made shareable
+          # in the submitting thread.
+          # `args` and `kwargs` _may_ have been made shareable already.
+          # `object_id` is an `Integer`
+          # and thus is inherently immutable and shareable.
+          shareable_task = [future.object_id, block, args, kwargs].freeze
 
+          while (next_tasks_port = @ready_tasks_ports.pop)
+            break if synchronize do
               begin
-                next_worker.send(ractor_task, move: @move_args)
+                next_tasks_port.send(shareable_task, move: @move_args)
               rescue Ractor::ClosedError
                 # It's possible for a worker to close
-                # before it gets reaped from @pool and @available_workers.
+                # before it gets reaped from @pool and @ready_tasks_ports.
                 #
                 # Just skip and try the next worker.
                 break false
               end
 
               @futures[future.object_id] = future # rubocop:disable Lint/HashCompareByIdentity
-              @worker_futures[next_worker].add(future)
-              true
+              worker = @tasks_ports.fetch(next_tasks_port)
+              @worker_futures[worker].add(future)
+              break true
             end
           end
         end
@@ -250,8 +252,8 @@ module AsyncFutures
         # that means the executor is shutdown.
         # We need to shutdown all workers until
         # the worker queue gets closed by the `@results_feeder`.
-        while (next_worker = @available_workers.pop)
-          next_worker.send(:shutdown)
+        while (next_tasks_port = @ready_tasks_ports.pop)
+          next_tasks_port.send(:shutdown)
         end
       ensure
         synchronize do
@@ -269,47 +271,30 @@ module AsyncFutures
         Thread.current.name = feeder_name
 
         loop do
-          break_loop, work_ports_keys = synchronize do
-            wait_until { !@work_ports.empty? || (@pool.empty? && @tasks.closed? && @tasks.empty?) }
+          break_loop, results_ports_keys = synchronize do
+            wait_until do
+              (@tasks.closed? && @tasks.empty? && @results_ports.empty? && @pool.empty?) || !@results_ports.empty?
+            end
 
-            [@work_ports.empty? && @pool.empty? && @tasks.closed? && @tasks.empty?, @work_ports.keys]
+            [@tasks.closed? && @tasks.empty? && @results_ports.empty? && @pool.empty?, @results_ports.keys]
           end
 
           break if break_loop
 
-          port, msg = Ractor.select(*work_ports_keys)
+          port, msg = Ractor.select(*results_ports_keys)
 
           case msg
-          when :exited
+          when :exited, :aborted
             synchronize do
-              @work_ports[port].tap do |worker|
+              @results_ports[port].tap do |worker|
                 @pool.delete worker
-                @work_ports.delete(port)
-                port.close
-              end
-            end
-          when :aborted
-            old_worker = synchronize do
-              @work_ports[port].tap do |old_worker|
-                @pool.delete old_worker
-                @work_ports.delete(port)
+                @results_ports.delete(port)
                 port.close
               end
             end
 
             maybe_spawn_worker
-
-            futures = synchronize { @worker_futures.delete(old_worker) || Set.new }
-            begin
-              old_worker.join
-            rescue Ractor::RemoteError => e
-              futures.each do |f|
-                f.set_exception(e.cause)
-              rescue InvalidStateError
-                # Do nothing
-              end
-            end
-          else # Must be an Array
+          else # `:aborted` can never happen, so this must be an Array
             future_id, type, value = msg
 
             future = synchronize { @futures[future_id] }
@@ -317,37 +302,42 @@ module AsyncFutures
             future.set_exception(value) if type.equal? :exception
             future.set_result(value) if type.equal? :result
 
-            synchronize { @available_workers.push @work_ports[port] }
+            synchronize { @ready_tasks_ports.push @results_ports[port] }
           end
         end
 
         # We synchronize here so that we broadcast the condition afterward.
-        synchronize { @available_workers.close }
+        synchronize { @ready_tasks_ports.close }
+      ensure
+        synchronize do
+          @result_feeder = nil
+        end
       end
     end
 
     # Only spawn a worker if one is needed.
     def maybe_spawn_worker
       # synchronize when interacting directly with @pool
-      synchronize { spawn_worker if @pool.empty? || (!@tasks.empty? && @pool.size < @max_workers) }
+      synchronize { spawn_worker if @pool.size < @max_workers && !@tasks.closed? }
     end
 
     # Always spawn a worker
     def spawn_worker # rubocop:disable Metrics/AbcSize
-      new_port = Ractor::Port.new
+      new_results_port = Ractor::Port.new
 
-      worker = Ractor.new(new_port, @move_result, name: new_worker_name) do |results_port, move_result|
-        # Coverage doesn't currently work outside the main Ractor,
-        # so just skip it for now.
-        # :nocov:
+      # Coverage doesn't currently work outside the main Ractor,
+      # so just skip it for now.
+      # :nocov:
+      worker = Ractor.new(new_results_port, @move_result, name: new_worker_name) do |results_port, move_result|
+        tasks_port = Ractor::Port.new
+        results_port.send tasks_port
+
         loop do
-          case (task = Ractor.receive)
+          case (task = tasks_port.receive)
           when :shutdown
             break
-          when Array
+          else # Only other possibility is task Array
             future_id, block, args, kwargs = task
-          else
-            raise RactorError.new("Unknown message received: #{task}")
           end
 
           begin
@@ -358,14 +348,22 @@ module AsyncFutures
             results_port.send([future_id, :result, result], move: move_result)
           end
         end
-        # :nocov:
+        Fiber.set_scheduler(nil)
+      ensure
+        tasks_port.close
       end
+      # :nocov:
 
       worker.tap do |worker|
-        @work_ports[new_port] = worker
-        worker.monitor new_port
+        @results_ports[new_results_port] = worker
+
+        tasks_port = new_results_port.receive
+        @tasks_ports[tasks_port] = worker
+
+        worker.monitor new_results_port
+
         @pool.add worker
-        @available_workers.push worker
+        @ready_tasks_ports.push tasks_port
       end
     end
   end
