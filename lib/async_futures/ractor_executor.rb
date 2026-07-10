@@ -330,7 +330,7 @@ module AsyncFutures
     # Only spawn a worker if one is needed.
     def maybe_spawn_worker
       # synchronize when interacting directly with @pool
-      synchronize { spawn_worker if @pool.empty? || (!@tasks.empty? && @pool.size < @max_workers) }
+      spawn_worker if synchronize { @pool.empty? || (!@tasks.empty? && @pool.size < @max_workers) }
     end
 
     # Always spawn a worker
@@ -372,13 +372,15 @@ module AsyncFutures
       end
       # :nocov:
 
-      worker.tap do |worker|
-        new_tasks_port = new_results_port.receive
-        @tasks_ports[new_tasks_port] = worker
-        @work_ports[new_results_port] = worker
-        worker.monitor new_results_port
-        @pool.add worker
-        @available_workers.push worker
+      synchronize do
+        worker.tap do |worker|
+          new_tasks_port = new_results_port.receive
+          @tasks_ports[new_tasks_port] = worker
+          @work_ports[new_results_port] = worker
+          worker.monitor new_results_port
+          @pool.add worker
+          @available_workers.push worker
+        end
       end
     end
   end
