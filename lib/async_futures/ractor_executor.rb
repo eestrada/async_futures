@@ -97,6 +97,7 @@ module AsyncFutures
       # All private variables after this point
       # require synchronization to safely interact with.
       @work_ports = {}
+      @tasks_ports = {}
       @futures = {}
 
       # When Fibers are eventually supported,
@@ -334,12 +335,20 @@ module AsyncFutures
 
     # Always spawn a worker
     def spawn_worker # rubocop:disable Metrics/AbcSize
-      new_port = Ractor::Port.new
+      new_results_port = Ractor::Port.new
 
       # Coverage doesn't currently work outside the main Ractor,
       # so just skip it for now.
       # :nocov:
-      worker = Ractor.new(new_port, @move_result, name: new_worker_name) do |results_port, move_result|
+      worker = Ractor.new(
+        new_results_port,
+        @move_result,
+        name: new_worker_name
+      ) do |results_port, move_result|
+        tasks_port = Ractor::Port.new
+
+        results_port.send(tasks_port)
+
         loop do
           case (task = Ractor.receive)
           when :shutdown
@@ -358,12 +367,16 @@ module AsyncFutures
             results_port.send([future_id, :result, result], move: move_result)
           end
         end
+      ensure
+        tasks_port.close
       end
       # :nocov:
 
       worker.tap do |worker|
-        @work_ports[new_port] = worker
-        worker.monitor new_port
+        new_tasks_port = new_results_port.receive
+        @tasks_ports[new_tasks_port] = worker
+        @work_ports[new_results_port] = worker
+        worker.monitor new_results_port
         @pool.add worker
         @available_workers.push worker
       end
