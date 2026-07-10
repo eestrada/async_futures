@@ -148,7 +148,7 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_concurrent_submission_deadlocking
-    AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
+    AsyncFutures::ThreadExecutor.new(max_workers: 1, strict_concurrency: true).shutdown do |executor|
       m1 = Thread::Mutex.new
 
       future1 = m1.synchronize do
@@ -166,7 +166,7 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
       exc = future1.result
 
-      assert_match(/^Task submitted from lone worker thread is not concurrent$/, exc.message)
+      assert_match(/^Tasks exceed potential workers$/, exc.message)
     end
   end
 

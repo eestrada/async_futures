@@ -11,7 +11,8 @@ module AsyncFutures
   #
   # `ThreadExecutor` specific submission considerations:
   #
-  # For `ThreadExecutor` the tasks are never run immediately upon submission.
+  # For `ThreadExecutor`, with no arguments passed,
+  # the tasks are not run immediately upon submission.
   # They are placed into a work queue
   # to be picked up later by worker threads.
   #
@@ -19,7 +20,8 @@ module AsyncFutures
   # that any particular task will be run concurrently
   # with any other particular task;
   # that is dependent on how many worker threads and tasks there are
-  # at any given point in time.
+  # at any given point in time
+  # and whether the `strict_concurrency` argument is passed.
   class ThreadExecutor # rubocop:disable Metrics/ClassLength
     include Executor
 
@@ -40,26 +42,30 @@ module AsyncFutures
     # When the argument is `true` then the following happens:
     #
     # - `submit`: if adding another task to the queue
-    #   would make more tasks than available (or potential max) workers,
+    #   would make more tasks than available (or potential) workers,
     #   then the task is run immediately
     #   and a completed future is returned to the caller.
     # - `submit_concurrent`: if adding another task to the queue
-    #   would make more tasks than available (or potential max) workers,
+    #   would make more tasks than available (or potential) workers,
     #   then a `NoConcurrencyError` is raised.
     #
     # With `strict_concurrency: false`
     # you can do interesting/dangerous things.
-    # For example, you can add tasks to the executor from within a worker thread,
+    # For example, you can add tasks to the executor
+    # from within a executor worker thread,
     # even if the max worker count is only `1`.
     # If you think through this scenario
-    # you will realize that joining on the returned future will deadlock.
+    # you will realize that joining on the returned future
+    # will deadlock the worker thread.
     #
     # This defaults to `false` precisely because
-    # the most common scenario is firing of many tasks
+    # scenarios like this are uncommon.
+    # The most common scenario is firing of many tasks
     # from the main thread of execution
-    # that do not interact other than to return a value.
+    # that do not interact other than to return a value
+    # to the main thread.
     #
-    # A scenario where you might want this to be `true`:
+    # A scenario where you might want `strict_concurrency` to be `true`:
     # you have client and server tasks
     # and they *must* run concurrent to each other in order to work correctly.
     #
@@ -125,30 +131,11 @@ module AsyncFutures
     # under certain circumstances.
     #
     # See `AsyncFutures::Executor.submit` method for full documentation.
-    def submit(*args, **kwargs, &block) # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
+    def submit(*args, **kwargs, &block)
       raise ArgumentError.new('No block given') unless block
 
-      Future.new.tap do |future|
-        if @strict_concurrency
-          task_queued = synchronize do
-            potential_workers = (@max_workers - @pool.size) + @pool.values.count(&:!)
-            if (@tasks.size + 1) <= potential_workers
-              @tasks.push([future, block, args, kwargs])
-              true
-            else
-              false
-            end
-          end
-
-          unless task_queued
-            raise ClosedQueueError if @tasks.closed?
-
-            future.complete(*args, **kwargs, &block)
-          end
-        else
-          @tasks.push([future, block, args, kwargs])
-        end
-        maybe_spawn_worker
+      Future.new.tap do |f|
+        f.complete(*args, **kwargs, &block) unless queue_task(f, *args, **kwargs, &block)
       rescue ClosedQueueError
         raise 'ThreadExecutor instance is shutdown'
       end
@@ -165,14 +152,8 @@ module AsyncFutures
     def submit_concurrent(*args, **kwargs, &block)
       raise ArgumentError.new('No block given') unless block
 
-      Future.new.tap do |future|
-        if synchronize { @pool.include?(Thread.current) } && @max_workers == 1
-          raise ClosedQueueError if @tasks.closed?
-
-          raise NoConcurrencyError.new('Task submitted from lone worker thread is not concurrent')
-        end
-        @tasks.push([future, block, args, kwargs])
-        maybe_spawn_worker
+      Future.new.tap do |f|
+        raise NoConcurrencyError.new('Tasks exceed potential workers') unless queue_task(f, *args, **kwargs, &block)
       rescue ClosedQueueError
         raise 'ThreadExecutor instance is shutdown'
       end
@@ -232,6 +213,40 @@ module AsyncFutures
         @tasks.close
         return false
       end
+    end
+
+    # Attempt to queue task.
+    # Return `true` if successful, `false` otherwise.
+    #
+    # Raises `ClosedQueueError` if the task queue is closed.
+    #
+    # If `@strict_concurrency` is `false`,
+    # this method always queues the task.
+    #
+    # If `@strict_concurrency` is `true`,
+    # task may or may not be queued
+    # based on whether there are any potentially available workers.
+    #
+    # May spawn a new worker, if the task was queued.
+    def queue_task(future, *args, **kwargs, &block)
+      queued = if @strict_concurrency
+                 synchronize do
+                   potential_workers = (@max_workers - @pool.size) + @pool.values.count(&:!)
+                   if (@tasks.size + 1) <= potential_workers
+                     @tasks.push([future, block, args, kwargs])
+                     true
+                   else
+                     raise ClosedQueueError if @tasks.closed?
+
+                     false
+                   end
+                 end
+               else
+                 @tasks.push([future, block, args, kwargs])
+                 true
+               end
+
+      queued.tap { maybe_spawn_worker if queued }
     end
 
     # Only spawn a worker if one is needed.
