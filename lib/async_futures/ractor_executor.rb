@@ -98,6 +98,7 @@ module AsyncFutures
       # require synchronization to safely interact with.
       @work_ports = {}
       @tasks_ports = {}
+      @worker_to_task_port = ObjectSpace::WeakKeyMap.new
       @futures = {}
 
       # When Fibers are eventually supported,
@@ -313,12 +314,16 @@ module AsyncFutures
           else # Must be an Array
             future_id, type, value = msg
 
-            future = synchronize { @futures[future_id] }
+            future = synchronize { @futures.delete(future_id) }
 
             future.set_exception(value) if type.equal? :exception
             future.set_result(value) if type.equal? :result
 
-            synchronize { @worker_tasks_ports.push @work_ports[port] }
+            synchronize do
+              worker = @work_ports[port]
+              tasks_port = @worker_to_task_port[worker]
+              @worker_tasks_ports.push tasks_port
+            end
           end
         end
 
@@ -349,8 +354,10 @@ module AsyncFutures
 
         results_port.send(tasks_port)
 
+        Ractor.current.default_port.close
+
         loop do
-          case (task = Ractor.receive)
+          case (task = tasks_port.receive)
           when :shutdown
             break
           when Array
@@ -378,8 +385,9 @@ module AsyncFutures
         @tasks_ports[new_tasks_port] = worker
         @work_ports[new_results_port] = worker
         @pool.add worker
+        @worker_to_task_port[worker] = new_tasks_port
       end
-      @worker_tasks_ports.push worker
+      @worker_tasks_ports.push new_tasks_port
     end
   end
 end
