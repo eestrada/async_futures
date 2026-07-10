@@ -92,7 +92,7 @@ module AsyncFutures
       @mutex = Thread::Mutex.new
       @condition = Thread::ConditionVariable.new
       @tasks = Thread::Queue.new
-      @available_workers = Thread::Queue.new
+      @worker_tasks_ports = Thread::Queue.new
 
       # All private variables after this point
       # require synchronization to safely interact with.
@@ -170,7 +170,7 @@ module AsyncFutures
           end
         end
 
-        synchronize { wait_until { @available_workers.closed? && @available_workers.empty? } } if wait
+        synchronize { wait_until { @worker_tasks_ports.closed? && @worker_tasks_ports.empty? } } if wait
       end
     end
 
@@ -221,7 +221,7 @@ module AsyncFutures
 
           next unless future.set_running_or_notify_cancel
 
-          while (next_worker = @available_workers.pop)
+          while (next_tasks_port = @worker_tasks_ports.pop)
             break if synchronize do
               # `block` was already made shareable
               # in the submitting thread.
@@ -231,17 +231,17 @@ module AsyncFutures
               ractor_task = [future.object_id, block, args, kwargs].freeze
 
               begin
-                next_worker.send(ractor_task, move: @move_args)
+                next_tasks_port.send(ractor_task, move: @move_args)
               rescue Ractor::ClosedError
                 # It's possible for a worker to close
-                # before it gets reaped from @pool and @available_workers.
+                # before it gets reaped from @pool and @worker_tasks_ports.
                 #
                 # Just skip and try the next worker.
                 break false
               end
 
               @futures[future.object_id] = future # rubocop:disable Lint/HashCompareByIdentity
-              @worker_futures[next_worker].add(future)
+              @worker_futures[next_tasks_port].add(future)
               true
             end
           end
@@ -251,8 +251,8 @@ module AsyncFutures
         # that means the executor is shutdown.
         # We need to shutdown all workers until
         # the worker queue gets closed by the `@results_feeder`.
-        while (next_worker = @available_workers.pop)
-          next_worker.send(:shutdown)
+        while (next_tasks_port = @worker_tasks_ports.pop)
+          next_tasks_port.send(:shutdown)
         end
       ensure
         synchronize do
@@ -318,12 +318,12 @@ module AsyncFutures
             future.set_exception(value) if type.equal? :exception
             future.set_result(value) if type.equal? :result
 
-            synchronize { @available_workers.push @work_ports[port] }
+            synchronize { @worker_tasks_ports.push @work_ports[port] }
           end
         end
 
         # We synchronize here so that we broadcast the condition afterward.
-        synchronize { @available_workers.close }
+        synchronize { @worker_tasks_ports.close }
       end
     end
 
@@ -379,7 +379,7 @@ module AsyncFutures
         @work_ports[new_results_port] = worker
         @pool.add worker
       end
-      @available_workers.push worker
+      @worker_tasks_ports.push worker
     end
   end
 end
