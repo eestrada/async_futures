@@ -96,12 +96,10 @@ module AsyncFutures
 
       # All private variables after this point
       # require synchronization to safely interact with.
-      @work_ports = {}
-      @tasks_ports = {}
-      @worker_to_task_port = ObjectSpace::WeakKeyMap.new
+      @results_ports = {}
+      @worker_to_task_port_map = ObjectSpace::WeakKeyMap.new
       @futures = {}
 
-      @results_ports = {}
       @pool = Set.new
       @worker_count = 0
 
@@ -256,25 +254,24 @@ module AsyncFutures
         Thread.current.name = feeder_name
 
         loop do
-          break_loop, work_ports_keys = synchronize do
-            wait_until { !@work_ports.empty? || (@pool.empty? && @tasks.closed? && @tasks.empty?) }
+          break_loop, results_ports_keys = synchronize do
+            wait_until { !@results_ports.empty? || (@pool.empty? && @tasks.closed? && @tasks.empty?) }
 
-            [@work_ports.empty? && @pool.empty? && @tasks.closed? && @tasks.empty?, @work_ports.keys]
+            [@results_ports.empty? && @pool.empty? && @tasks.closed? && @tasks.empty?, @results_ports.keys]
           end
 
           break if break_loop
 
-          port, msg = Ractor.select(*work_ports_keys)
+          port, msg = Ractor.select(*results_ports_keys)
 
           case msg
           when :exited
             synchronize do
-              @work_ports[port].tap do |worker|
-                @pool.delete worker
-                @work_ports.delete(port)
-                port.close
-              end
+              worker = @results_ports[port]
+              @pool.delete worker
+              @results_ports.delete(port)
             end
+            port.close
           else # Must be an Array
             future_id, type, value = msg
 
@@ -283,11 +280,11 @@ module AsyncFutures
             future.set_exception(value) if type.equal? :exception
             future.set_result(value) if type.equal? :result
 
-            synchronize do
-              worker = @work_ports[port]
-              tasks_port = @worker_to_task_port[worker]
-              @worker_tasks_ports.push tasks_port
+            tasks_port = synchronize do
+              worker = @results_ports[port]
+              @worker_to_task_port_map[worker]
             end
+            @worker_tasks_ports.push tasks_port
           end
         end
 
@@ -346,10 +343,9 @@ module AsyncFutures
       new_tasks_port = new_results_port.receive
       worker.monitor new_results_port
       synchronize do
-        @tasks_ports[new_tasks_port] = worker
-        @work_ports[new_results_port] = worker
+        @results_ports[new_results_port] = worker
         @pool.add worker
-        @worker_to_task_port[worker] = new_tasks_port
+        @worker_to_task_port_map[worker] = new_tasks_port
       end
       @worker_tasks_ports.push new_tasks_port
     end
