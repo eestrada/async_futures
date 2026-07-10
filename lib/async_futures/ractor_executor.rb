@@ -372,16 +372,14 @@ module AsyncFutures
       end
       # :nocov:
 
+      new_tasks_port = new_results_port.receive
+      worker.monitor new_results_port
       synchronize do
-        worker.tap do |worker|
-          new_tasks_port = new_results_port.receive
-          @tasks_ports[new_tasks_port] = worker
-          @work_ports[new_results_port] = worker
-          worker.monitor new_results_port
-          @pool.add worker
-          @available_workers.push worker
-        end
+        @tasks_ports[new_tasks_port] = worker
+        @work_ports[new_results_port] = worker
+        @pool.add worker
       end
+      @available_workers.push worker
     end
   end
 end
