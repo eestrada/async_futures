@@ -53,8 +53,30 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     assert_predicate future1, :done?
   end
 
+  def test_run_deadlocking_submission_on_closed_executor
+    AsyncFutures::ThreadExecutor.new(max_workers: 1, strict_concurrency: true).shutdown do |executor|
+      m1 = Thread::Mutex.new
+
+      future1 = m1.synchronize do
+        executor.submit(executor, m1) do |meta_exec, mtx|
+          meta_exec.shutdown(wait: false)
+
+          # should raise on shutdown
+          mtx.synchronize { meta_exec.submit { 1234 } }
+        end.tap do |f1| # rubocop:disable Style/MultilineBlockChain
+          # The parent future should *not* be run immediately.
+          refute_predicate f1, :done?
+        end
+      end
+
+      # <RuntimeError: ThreadExecutor instance is shutdown>
+      assert_instance_of RuntimeError, future1.exception
+      assert_match(/^ThreadExecutor instance is shutdown$/, future1.exception.message)
+    end
+  end
+
   def test_run_deadlocking_submission_immediately
-    AsyncFutures::ThreadExecutor.new(max_workers: 1).shutdown do |executor|
+    AsyncFutures::ThreadExecutor.new(max_workers: 1, strict_concurrency: true).shutdown do |executor|
       m1 = Thread::Mutex.new
 
       future1 = m1.synchronize do
