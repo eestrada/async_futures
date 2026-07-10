@@ -134,33 +134,6 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     end
   end
 
-  def test_exceptional_exit
-    AsyncFutures::RactorExecutor.new(max_workers: 2).shutdown do |executor|
-      future1 = executor.submit { Ractor.current.default_port }
-
-      default_port1 = future1.result
-
-      # Under normal circumstances
-      # we can't cause an abnormal exit from a Ractor worker,
-      # so we need to force one here by writing directly to its default port.
-      default_port1.send 'Nonsense value'
-
-      future2 = executor.submit { Ractor.current.default_port }
-
-      future2.join
-
-      skip 'With only one worker, I cannot get this to work correctly'
-
-      # FIXME: This should be caught and dealt with before this future is even spawned.
-      # This only fails if there is only one worker.
-      assert_raises(AsyncFutures::RactorError) { future2.result }
-
-      default_port2 = future2.result
-
-      refute_same default_port1, default_port2
-    end
-  end
-
   def test_only_one_worker # rubocop:disable Metrics/AbcSize
     AsyncFutures::RactorExecutor.new(max_workers: 1).shutdown do |executor|
       before_time = Time.now

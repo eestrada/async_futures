@@ -101,10 +101,6 @@ module AsyncFutures
       @worker_to_task_port = ObjectSpace::WeakKeyMap.new
       @futures = {}
 
-      # When Fibers are eventually supported,
-      # a worker can/will have more than one future associated with it.
-      @worker_futures = Hash.new { |hash, key| hash[key] = Set.new }
-
       @results_ports = {}
       @pool = Set.new
       @worker_count = 0
@@ -222,29 +218,18 @@ module AsyncFutures
 
           next unless future.set_running_or_notify_cancel
 
-          while (next_tasks_port = @worker_tasks_ports.pop)
-            break if synchronize do
-              # `block` was already made shareable
-              # in the submitting thread.
-              # `args` and `kwargs` _may_ have been made shareable already.
-              # `object_id` is an `Integer`
-              # and thus is inherently immutable and shareable.
-              ractor_task = [future.object_id, block, args, kwargs].freeze
+          next_tasks_port = @worker_tasks_ports.pop
 
-              begin
-                next_tasks_port.send(ractor_task, move: @move_args)
-              rescue Ractor::ClosedError
-                # It's possible for a worker to close
-                # before it gets reaped from @pool and @worker_tasks_ports.
-                #
-                # Just skip and try the next worker.
-                break false
-              end
+          # `block` was already made shareable
+          # in the submitting thread.
+          # `args` and `kwargs` _may_ have been made shareable already.
+          # `object_id` is an `Integer`
+          # and thus is inherently immutable and shareable.
+          ractor_task = [future.object_id, block, args, kwargs].freeze
+          next_tasks_port.send(ractor_task, move: @move_args)
 
-              @futures[future.object_id] = future # rubocop:disable Lint/HashCompareByIdentity
-              @worker_futures[next_tasks_port].add(future)
-              true
-            end
+          synchronize do
+            @futures[future.object_id] = future # rubocop:disable Lint/HashCompareByIdentity
           end
         end
 
@@ -288,27 +273,6 @@ module AsyncFutures
                 @pool.delete worker
                 @work_ports.delete(port)
                 port.close
-              end
-            end
-          when :aborted
-            old_worker = synchronize do
-              @work_ports[port].tap do |old_worker|
-                @pool.delete old_worker
-                @work_ports.delete(port)
-                port.close
-              end
-            end
-
-            maybe_spawn_worker
-
-            futures = synchronize { @worker_futures.delete(old_worker) || Set.new }
-            begin
-              old_worker.join
-            rescue Ractor::RemoteError => e
-              futures.each do |f|
-                f.set_exception(e.cause)
-              rescue InvalidStateError
-                # Do nothing
               end
             end
           else # Must be an Array
