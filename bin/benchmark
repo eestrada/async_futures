@@ -24,9 +24,9 @@ def fibonacci(n) # rubocop:disable Naming/MethodParameterName
   end
 end
 
-def tempfile_write
-  Tempfile.create(anonymous: true) do |f|
-    f.write 'hello'
+def devnull_write
+  File.open(IO::NULL, 'w') do |f|
+    1_000.times { f.write 'hello' }
   end
 end
 
@@ -37,6 +37,8 @@ n_gvl_freed = 1_000_000
 
 m_sleep = 256
 n_sleep = 0.01
+
+m_tempfile_write = 10_024
 
 gvl_freed_proc = proc { |ii, nn| nn.times { |j| Digest::SHA2.hexdigest((ii + j).to_s) } }
 
@@ -88,6 +90,23 @@ Benchmark.bmbm do |x|
     fexec = AsyncFutures::FiberExecutor.new
     Fiber.schedule do
       fexec.map(m_sleep.times) { sleep(n_sleep) }.to_a
+    end
+    Fiber.set_scheduler(nil)
+  end
+
+  x.report('/dev/null write: Inline') { bexec.map(m_tempfile_write.times) { devnull_write }.to_a }
+  x.report('/dev/null write: Thread') { texec.map(m_tempfile_write.times) { devnull_write }.to_a }
+  x.report('/dev/null write: Ractor') { rexec.map(m_tempfile_write.times) { devnull_write }.to_a }
+  x.report('/dev/null write: Fiber') do
+    # This stays inside the block
+    # because it won't run unless it is unset as the scheduler at the end,
+    # at which point it is closed and can't be re-opened afterward.
+
+    fiber_scheduler = Async::Scheduler.new
+    Fiber.set_scheduler(fiber_scheduler)
+    fexec = AsyncFutures::FiberExecutor.new
+    Fiber.schedule do
+      fexec.map(m_tempfile_write.times) { devnull_write }.to_a
     end
     Fiber.set_scheduler(nil)
   end
