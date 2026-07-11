@@ -25,13 +25,15 @@ end
 
 m_gvl_freed = 50_000
 n_gvl_freed = 1_000_000
+m_gvl_held = 32
+n_gvl_held = 28
 
 gvl_freed_proc = proc { |ii, nn| nn.times { |j| Digest::SHA2.hexdigest((ii + j).to_s) } }
 
 Benchmark.bmbm do |x|
-  x.report('CPU Bound (GVL held): Inline') { m_gvl_freed.times { bexec.submit(6) { |n| fibonacci(n) } } }
-  x.report('CPU Bound (GVL held): Thread') { m_gvl_freed.times { texec.submit(6) { |n| fibonacci(n) } } }
-  x.report('CPU Bound (GVL held): Ractor') { m_gvl_freed.times { rexec.submit(6) { |n| fibonacci(n) } } }
+  x.report('CPU Bound (GVL held): Inline') { bexec.map(m_gvl_held.times) { fibonacci(n_gvl_held) }.to_a }
+  x.report('CPU Bound (GVL held): Thread') { texec.map(m_gvl_held.times) { fibonacci(n_gvl_held) }.to_a }
+  x.report('CPU Bound (GVL held): Ractor') { rexec.map(m_gvl_held.times) { fibonacci(n_gvl_held) }.to_a }
   x.report('CPU Bound (GVL held): Fiber') do
     # This stays inside the block
     # because it won't run unless it is unset as the scheduler at the end,
@@ -41,7 +43,7 @@ Benchmark.bmbm do |x|
     Fiber.set_scheduler(fiber_scheduler)
     fexec = AsyncFutures::FiberExecutor.new
     Fiber.schedule do
-      m_gvl_freed.times { fexec.submit(6) { |n| fibonacci(n) } }
+      fexec.map(m_gvl_held.times) { fibonacci(n_gvl_held) }.to_a
     end
     Fiber.set_scheduler(nil)
   end
