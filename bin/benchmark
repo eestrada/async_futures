@@ -4,17 +4,13 @@
 require 'bundler/setup'
 require 'async_futures'
 require 'async_futures/ractor_executor'
+require 'async_futures/io_async'
 require 'async'
 require 'benchmark'
 require 'tempfile'
 
 # Turn off Ractor warnings getting printed.
 Warning[:experimental] = false
-
-# These stay outside the block to stay "warm".
-bexec = AsyncFutures::Executor
-texec = AsyncFutures::ThreadExecutor.new(max_workers: 4)
-rexec = AsyncFutures::RactorExecutor.new(max_workers: 4)
 
 def fibonacci(n) # rubocop:disable Naming/MethodParameterName
   if n == 0 || n == 1 # rubocop:disable Style/MultipleComparison,Style/NumericPredicate
@@ -24,16 +20,17 @@ def fibonacci(n) # rubocop:disable Naming/MethodParameterName
   end
 end
 
-def devnull_write
+def devnull_write(executor, num_writes)
   File.open(IO::NULL, 'w') do |f|
-    1_000.times { f.write 'hello' }
+    executor.map(num_writes.times.each_with_object(f)) { |_, fp| fp.write('hello' * 1_000) }.each { |e| e }
   end
 end
 
 m_gvl_held = 32
 n_gvl_held = 28
-m_gvl_freed = 50_000
-n_gvl_freed = 1_000_000
+
+m_gvl_freed = 500
+n_gvl_freed = 10_000
 
 m_sleep = 256
 n_sleep = 0.01
@@ -41,6 +38,11 @@ n_sleep = 0.01
 m_tempfile_write = 10_024
 
 gvl_freed_proc = proc { |ii, nn| nn.times { |j| Digest::SHA2.hexdigest((ii + j).to_s) } }
+
+# These stay outside the block to stay "warm".
+bexec = AsyncFutures::Executor
+texec = AsyncFutures::ThreadExecutor.new(max_workers: 4)
+rexec = AsyncFutures::RactorExecutor.new(max_workers: 4)
 
 Benchmark.bmbm do |x|
   x.report('CPU Bound (GVL held): Inline') { bexec.map(m_gvl_held.times) { fibonacci(n_gvl_held) }.to_a }
@@ -94,9 +96,16 @@ Benchmark.bmbm do |x|
     Fiber.set_scheduler(nil)
   end
 
-  x.report('/dev/null write: Inline') { bexec.map(m_tempfile_write.times) { devnull_write }.to_a }
-  x.report('/dev/null write: Thread') { texec.map(m_tempfile_write.times) { devnull_write }.to_a }
-  x.report('/dev/null write: Ractor') { rexec.map(m_tempfile_write.times) { devnull_write }.to_a }
+  x.report('/dev/null write: IOAsync') do
+    File.open(IO::NULL, 'w') do |f|
+      m_tempfile_write.times.lazy.each_with_object(f).map do |_, fp|
+        fp.write_async('hello' * 1_000)
+      end.to_a.each(&:join)
+    end
+  end
+  x.report('/dev/null write: Inline') { devnull_write(bexec, m_tempfile_write) }
+  x.report('/dev/null write: Thread') { devnull_write(texec, m_tempfile_write) }
+  x.report('/dev/null write: Ractor') { devnull_write(rexec, m_tempfile_write) }
   x.report('/dev/null write: Fiber') do
     # This stays inside the block
     # because it won't run unless it is unset as the scheduler at the end,
@@ -106,7 +115,7 @@ Benchmark.bmbm do |x|
     Fiber.set_scheduler(fiber_scheduler)
     fexec = AsyncFutures::FiberExecutor.new
     Fiber.schedule do
-      fexec.map(m_tempfile_write.times) { devnull_write }.to_a
+      devnull_write(fexec, m_tempfile_write)
     end
     Fiber.set_scheduler(nil)
   end

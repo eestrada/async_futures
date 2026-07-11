@@ -4,6 +4,7 @@ require_relative 'future'
 
 require 'timeout'
 require 'openssl'
+require 'stringio'
 require 'set' # rubocop:disable Lint/RedundantRequireStatement
 
 module AsyncFutures
