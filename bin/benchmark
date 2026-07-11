@@ -1,0 +1,49 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'bundler/setup'
+require 'async_futures'
+require 'async_futures/ractor_executor'
+require 'async'
+require 'benchmark'
+
+# Turn off Ractor warnings getting printed.
+Warning[:experimental] = false
+
+# These stay outside the block to stay "warm".
+bexec = AsyncFutures::Executor
+texec = AsyncFutures::ThreadExecutor.new(max_workers: 4)
+rexec = AsyncFutures::RactorExecutor.new(max_workers: 4)
+
+def fibonacci(n) # rubocop:disable Naming/MethodParameterName
+  if n == 0 || n == 1 # rubocop:disable Style/MultipleComparison,Style/NumericPredicate
+    n
+  else
+    fibonacci(n - 1) + fibonacci(n - 2)
+  end
+end
+
+m_gvl_freed = 50_000
+n_gvl_freed = 1_000_000
+
+gvl_freed_proc = proc { |ii, nn| nn.times { |j| Digest::SHA2.hexdigest((ii + j).to_s) } }
+
+Benchmark.bmbm do |x|
+  x.report('CPU Bound (GVL freed): Inline') { m_gvl_freed.times { |i| bexec.submit(i, n_gvl_freed, &gvl_freed_proc) } }
+  x.report('CPU Bound (GVL freed): Thread') { m_gvl_freed.times { |i| texec.submit(i, n_gvl_freed, &gvl_freed_proc) } }
+  x.report('CPU Bound (GVL freed): Ractor') { m_gvl_freed.times { |i| rexec.submit(i, n_gvl_freed, &gvl_freed_proc) } }
+
+  x.report('CPU Bound (GVL freed): Fiber ') do
+    # This stays inside the block
+    # because it won't run unless it is unset as the scheduler at the end,
+    # at which point it is closed and can't be re-opened afterward.
+
+    fiber_scheduler = Async::Scheduler.new
+    Fiber.set_scheduler(fiber_scheduler)
+    fexec = AsyncFutures::FiberExecutor.new
+    Fiber.schedule do
+      m_gvl_freed.times { |i| fexec.submit(i, n_gvl_freed, &gvl_freed_proc) }
+    end
+    Fiber.set_scheduler(nil)
+  end
+end

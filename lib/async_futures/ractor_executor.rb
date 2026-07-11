@@ -275,7 +275,7 @@ module AsyncFutures
           else # Must be an Array
             future_id, type, value = msg
 
-            future = synchronize { @futures.delete(future_id) }
+            future = synchronize { @futures.delete(future_id) { raise "future_id not found #{future_id}" } }
 
             future.set_exception(value) if type.equal? :exception
             future.set_result(value) if type.equal? :result
