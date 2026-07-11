@@ -6,6 +6,7 @@ require 'async_futures'
 require 'async_futures/ractor_executor'
 require 'async'
 require 'benchmark'
+require 'tempfile'
 
 # Turn off Ractor warnings getting printed.
 Warning[:experimental] = false
@@ -23,10 +24,19 @@ def fibonacci(n) # rubocop:disable Naming/MethodParameterName
   end
 end
 
-m_gvl_freed = 50_000
-n_gvl_freed = 1_000_000
+def tempfile_write
+  Tempfile.create(anonymous: true) do |f|
+    f.write 'hello'
+  end
+end
+
 m_gvl_held = 32
 n_gvl_held = 28
+m_gvl_freed = 50_000
+n_gvl_freed = 1_000_000
+
+m_sleep = 256
+n_sleep = 0.01
 
 gvl_freed_proc = proc { |ii, nn| nn.times { |j| Digest::SHA2.hexdigest((ii + j).to_s) } }
 
@@ -61,6 +71,23 @@ Benchmark.bmbm do |x|
     fexec = AsyncFutures::FiberExecutor.new
     Fiber.schedule do
       m_gvl_freed.times { |i| fexec.submit(i, n_gvl_freed, &gvl_freed_proc) }
+    end
+    Fiber.set_scheduler(nil)
+  end
+
+  x.report('Sleep: Inline') { bexec.map(m_sleep.times) { sleep(n_sleep) }.to_a }
+  x.report('Sleep: Thread') { texec.map(m_sleep.times) { sleep(n_sleep) }.to_a }
+  x.report('Sleep: Ractor') { rexec.map(m_sleep.times) { sleep(n_sleep) }.to_a }
+  x.report('Sleep: Fiber') do
+    # This stays inside the block
+    # because it won't run unless it is unset as the scheduler at the end,
+    # at which point it is closed and can't be re-opened afterward.
+
+    fiber_scheduler = Async::Scheduler.new
+    Fiber.set_scheduler(fiber_scheduler)
+    fexec = AsyncFutures::FiberExecutor.new
+    Fiber.schedule do
+      fexec.map(m_sleep.times) { sleep(n_sleep) }.to_a
     end
     Fiber.set_scheduler(nil)
   end
