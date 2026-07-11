@@ -117,6 +117,15 @@ and push the `.gem` file to [rubygems.org](https://rubygems.org).
 The documentation in this repo uses [Semantic Line breaks](https://sembr.org/).
 If you contribute documentation changes, please follow the same convention.
 
+### Benchmarks
+
+There is a simple benchmarking script in this repo at `./bin/benchmark`.
+It takes no command line arguments.
+Just read it,
+then run it
+to see the difference in executor performance
+on different types of workloads.
+
 ## Contributing
 
 Bug reports and pull requests are welcome on Codeberg at
