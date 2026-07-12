@@ -2,6 +2,7 @@
 
 ## Launch asynchronous tasks
 
+[![Gem Version](https://badge.fury.io/rb/async_futures.svg?icon=si%3Arubygems)](https://badge.fury.io/rb/async_futures)
 [![CI Status](https://github.com/eestrada/async_futures/actions/workflows/main.yml/badge.svg?branch=master)](https://github.com/eestrada/async_futures/actions/workflows/main.yml)
 
 This library is heavily inspired by Python's `concurrent.futures` module.
