@@ -80,23 +80,111 @@ for the use of async futures.
 
 ## Installation
 
-TODO: Replace `UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG` with your gem name right after releasing it to RubyGems.org. Please do not do it earlier due to security reasons. Alternatively, replace this section with instructions to install your gem from git if you don't plan to release to RubyGems.org.
-
 Install the gem and add to the application's Gemfile by executing:
 
 ```bash
-bundle add UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
+bundle add async_futures
 ```
 
 If bundler is not being used to manage dependencies, install the gem by executing:
 
 ```bash
-gem install UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
+gem install async_futures
 ```
 
 ## Usage
 
-TODO: Write usage instructions here
+The test suite and benchmark script
+are probably the best place to see example usage.
+
+However, here are some quick introductory examples:
+
+
+```ruby
+require 'async_futures'
+
+# Base `Executor` mixin module (inline execution):
+bexec = AsyncFutures::Executor
+ftr1 = bexec.submit('world') { |subject| 'hello ' + subject.to_s }
+final_string = ftr1.result
+
+begin
+   ftr1 = bexec.submit_concurrent('world') { |subject| 'hello ' + subject.to_s }
+rescue AsyncFutures::NoConcurrencyError
+   # This will always trigger
+end
+
+subjects = ['Alice', 'Bob', 'Charlie']
+final_strings = bexec.map(subjects) { |subject| 'hello ' + subject.to_s }.to_a
+
+# `ThreadExecutor`:
+texec = AsyncFutures::ThreadExecutor.new
+ftr1 = texec.submit('world') { |subject| 'hello ' + subject.to_s }
+final_string = ftr1.result
+
+begin
+   ftr1 = texec.submit_concurrent('world') { |subject| 'hello ' + subject.to_s }
+rescue AsyncFutures::NoConcurrencyError
+   # This will not trigger by default
+   # but may trigger based on some initialize arguments.
+   # See docs for details.
+end
+
+subjects = ['Alice', 'Bob', 'Charlie']
+final_strings = texec.map(subjects) { |subject| 'hello ' + subject.to_s }.to_a
+
+# `FiberExecutor`:
+Fiber.set_scheduler(some_scheduler)
+fexec = AsyncFutures::FiberExecutor.new
+
+# It isn't necessary to submit within a scheduled fiber
+# but if we want to join in the same thread
+# we need to run within the scheduler.
+# However, cross thread joining is safe.
+Fiber.schedule do
+   ftr1 = fexec.submit('world') { |subject| 'hello ' + subject.to_s }
+   final_string = ftr1.result
+
+   begin
+      ftr1 = fexec.submit_concurrent('world') { |subject| 'hello ' + subject.to_s }
+   rescue AsyncFutures::NoConcurrencyError
+      # This will trigger by default
+      # but can be suppressed by an initialize argument.
+      # See docs for details.
+   end
+
+   subjects = ['Alice', 'Bob', 'Charlie']
+   final_strings = fexec.map(subjects) { |subject| 'hello ' + subject.to_s }.to_a
+end
+
+# Unsetting the scheduler causes it to run to completion.
+# Otherwise, we may need to wait until process exit
+# for it to fully finish running.
+Fiber.set_scheduler(nil)
+
+# `RactorExecutor`:
+
+# This must be explicitly required
+# since it doesn't run on anything prior to Ruby version 4.x
+# (the API changed a lot between versions so it only targets 4.x for now).
+# Also, the Java based VMs (JRuby and TruffleRuby)
+# don't support Ractor primitives *at all* yet.
+require 'async_futures/ractor_executor'
+
+rexec = AsyncFutures::RactorExecutor.new
+ftr1 = rexec.submit('world') { |subject| 'hello ' + subject.to_s }
+final_string = ftr1.result
+
+begin
+   ftr1 = rexec.submit_concurrent('world') { |subject| 'hello ' + subject.to_s }
+rescue AsyncFutures::NoConcurrencyError
+   # This will not currently trigger.
+   # This may change in a future version to be more like ThreadExecutor.
+end
+
+subjects = ['Alice', 'Bob', 'Charlie']
+final_strings = rexec.map(subjects) { |subject| 'hello ' + subject.to_s }.to_a
+```
 
 ## Development
 
@@ -112,19 +200,19 @@ which will create a git tag for the version,
 push git commits and the created tag,
 and push the `.gem` file to [rubygems.org](https://rubygems.org).
 
-### Documentation
-
-The documentation in this repo uses [Semantic Line breaks](https://sembr.org/).
-If you contribute documentation changes, please follow the same convention.
-
 ### Benchmarks
 
-There is a simple benchmarking script in this repo at `./bin/benchmark`.
+There is a simple benchmarking script in this repo at `bin/benchmark`.
 It takes no command line arguments.
 Just read it,
 then run it
 to see the difference in executor performance
 on different types of workloads.
+
+### Documentation
+
+The documentation in this repo uses [Semantic Line breaks](https://sembr.org/).
+If you contribute documentation changes, please follow the same convention.
 
 ## Contributing
 
