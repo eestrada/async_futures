@@ -13,7 +13,7 @@ Gem::Specification.new do |spec|
   spec.homepage = 'https://codeberg.org/eestrada/async_futures'
   spec.license = '0BSD'
   spec.required_ruby_version = '>= 3.3.0'
-  spec.metadata['allowed_push_host'] = "TODO: Set to your gem server 'https://example.com'"
+  spec.metadata['allowed_push_host'] = "https://rubygems.org/'"
   spec.metadata['homepage_uri'] = spec.homepage
   spec.metadata['source_code_uri'] = 'https://codeberg.org/eestrada/async_futures'
   spec.metadata['changelog_uri'] = 'https://codeberg.org/eestrada/async_futures/blob/main/CHANGELOG.md'
