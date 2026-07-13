@@ -198,19 +198,20 @@ module AsyncFutures
 
           future_object_id = future.object_id
 
-          write_pipe = synchronize do
+          read_pipe, write_pipe = synchronize do
             wait_until { @pool.size <= @max_workers }
 
             read_pipe, write_pipe = IO.pipe
             @pool.add(read_pipe)
             @futures[future_object_id] = future
-            write_pipe
+            [read_pipe, write_pipe]
           end
 
           Kernel.fork do
+            read_pipe.close
             result = block.call(*args, **kwargs)
-            marshalled = Marshal.dump(result)
-            json_result = JSON.dump([future_object_id, :result, marshalled])
+            marshalled_result = Marshal.dump(result)
+            json_result = JSON.dump([future_object_id, :result, marshalled_result])
           rescue Exception => e # rubocop:disable Lint/RescueException
             json_exc = JSON.dump([future_object_id, :exception, e.as_json])
             write_pipe.write(json_exc)
@@ -219,6 +220,7 @@ module AsyncFutures
           ensure
             write_pipe.close
           end
+          write_pipe.close
         end
       ensure
         synchronize do
@@ -258,12 +260,12 @@ module AsyncFutures
           future_id, type, value = msg
           future = synchronize { @futures.delete(future_id) { raise "future_id not found #{future_id}" } }
 
-          if type.equal? :exception
+          if type.to_sym.equal? :exception
             exc_value = Exception.json_create(value)
             future.set_exception(exc_value)
           end
 
-          if type.equal? :result
+          if type.to_sym.equal? :result
             result_value = Marshal.load(value) # rubocop:disable Security/MarshalLoad
             future.set_result(result_value)
           end
@@ -273,6 +275,10 @@ module AsyncFutures
           @result_feeder = nil
         end
       end
+    end
+
+    def log_debug(&)
+      AsyncFutures.logger&.debug(&)
     end
   end
 end
