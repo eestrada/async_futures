@@ -7,7 +7,7 @@ require 'set' # rubocop:disable Lint/RedundantRequireStatement
 
 module AsyncFutures
   # `Executor` implementation based on Process forking
-  # that uses up to `max_workers` to execute calls concurrently.
+  # that uses up to `max_workers` to execute calls in parallel.
   #
   # `ProcessExecutor` specific submission considerations:
   #
@@ -15,9 +15,10 @@ module AsyncFutures
   # They are placed into a work queue
   # to be picked up later.
   #
-  # Process workers are not reused for work.
+  # Process workers are not reused for work
+  # loke Threads and Ractors are.
   # Each task gets a freshly forked process.
-  # This is because marshalling anonymous blocks is not trivial;
+  # This is because marshalling anonymous blocks is not trivial in Ruby;
   # it is simpler to just fork after the block closure has been defined.
   # Use `ThreadExecutor` or `RactorExecutor`
   # for `Executor` implementations that support worker reuse.
@@ -25,7 +26,7 @@ module AsyncFutures
   # Consequently, this executor is only really useful for expensive calculations
   # where the startup time for a process
   # is dwarfed by the time needed for the actual work.
-  # If RactorExecutor is available on your Ruby version
+  # If RactorExecutor is available on your Ruby engine/version
   # it is almost certainly a better choice than this.
   #
   # This does _not_ guarantee
@@ -58,6 +59,7 @@ module AsyncFutures
       @worker_name_prefix = worker_name_prefix.to_s
       @reap_after = reap_after
       @mutex = Thread::Mutex.new
+      @condition = Thread::ConditionVariable.new
       @tasks = Thread::Queue.new
       @pool = Set.new
 
@@ -108,6 +110,10 @@ module AsyncFutures
 
     def synchronize(&)
       @mutex.synchronize(&)
+    end
+
+    def wait_until
+      @condition.wait(@mutex) until yield
     end
 
     # Returns the current shutdown state,

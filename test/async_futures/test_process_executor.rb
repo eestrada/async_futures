@@ -4,7 +4,7 @@ require_relative 'minitest_helper'
 
 class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def setup
-    skip 'Keep coverage pristine for now'
+    # skip 'Keep coverage pristine for now'
 
     # The Ractor API was different before version 4.x of Ruby.
     skip "ractor_executor not supported in version '#{RUBY_VERSION}'" if RUBY_VERSION =~ /^3\./
@@ -32,38 +32,12 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     AsyncFutures.logger = nil
   end
 
-  def test_new_with_conflicting_args
-    exc = assert_raises(ArgumentError) do
-      AsyncFutures::RactorExecutor.new(copy_args: true, make_args_shareable: false)
-    end
-
-    assert_match(/^`copy_args` cannot be true unless `make_args_shareable` is also true$/, exc.message)
-  end
-
-  def test_shareable_args
-    AsyncFutures::RactorExecutor.new(copy_args: true, make_args_shareable: true).shutdown do |executor|
-      future1 = executor.submit(1, 2, 3, 4, tell_me: 'that you love me more') do |*args, **kwargs|
-        [args, kwargs]
-      end
-
-      assert_instance_of AsyncFutures::Future, future1
-
-      result = future1.result
-
-      assert_predicate future1, :done?
-      assert_equal 2, result.size
-      assert_instance_of Array, result
-      assert_instance_of Array, result[0]
-      assert_instance_of Hash, result[1]
-    end
-  end
-
   def test_submit_raises_argument_error_without_block
     assert_raises(ArgumentError) { @executor.submit('No block given') }
   end
 
   def test_submit_returns_a_future_object
-    AsyncFutures::RactorExecutor.new.shutdown do |executor|
+    AsyncFutures::ProcessExecutor.new.shutdown do |executor|
       future1 = executor.submit(1, 2, 3, 4, tell_me: 'that you love me more') do |*args, **kwargs|
         [args, kwargs]
       end
@@ -81,11 +55,13 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_submit_raises_returns_exceptional_future
-    before_count = Ractor.count
+    skip 'need to implement `.pool_size`'
+
+    before_count = @executor.pool_size
     future1 = @executor.submit(1, 2, 3, 4, tell_me: 'that you love me more') do |*args, **kwargs|
       raise "Some runtime error #{args} #{kwargs}"
     end
-    after_count = Ractor.count
+    after_count = @executor.pool_size
 
     assert_operator after_count, :>, before_count
     assert_instance_of AsyncFutures::Future, future1
@@ -121,12 +97,14 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
     exc = assert_raises(RuntimeError) { @executor.submit { 'hello' } }
 
-    assert_match(/RactorExecutor instance is shutdown/, exc.message)
+    assert_match(/ProcessExecutor instance is shutdown/, exc.message)
   end
 
   def test_set_worker_name_prefix
-    AsyncFutures::RactorExecutor.new(worker_name_prefix: 'best').shutdown do |executor|
-      future1 = executor.submit { Ractor.current.name }
+    skip 'Need to implement this'
+
+    AsyncFutures::ProcessExecutor.new(worker_name_prefix: 'best').shutdown do |executor|
+      future1 = executor.submit { $PROGRAM_NAME }
 
       result = future1.result
 
@@ -135,7 +113,7 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_only_one_worker # rubocop:disable Metrics/AbcSize
-    AsyncFutures::RactorExecutor.new(max_workers: 1).shutdown do |executor|
+    AsyncFutures::ProcessExecutor.new(max_workers: 1).shutdown do |executor|
       before_time = Time.now
 
       future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
@@ -155,7 +133,7 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_cancel_futures_in_shutdown # rubocop:disable Metrics/AbcSize
-    AsyncFutures::RactorExecutor.new(max_workers: 1).shutdown do |executor|
+    AsyncFutures::ProcessExecutor.new(max_workers: 1).shutdown do |executor|
       future0 = executor.submit { Ractor::Port.new }
 
       p0 = future0.result
@@ -197,7 +175,7 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_dont_wait_in_shutdown
-    AsyncFutures::RactorExecutor.new(max_workers: 1).shutdown do |executor|
+    AsyncFutures::ProcessExecutor.new(max_workers: 1).shutdown do |executor|
       future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
       future1.join
       executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
@@ -212,7 +190,7 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_cancel_futures_manually # rubocop:disable Metrics/AbcSize
-    AsyncFutures::RactorExecutor.new(max_workers: 1).shutdown do |executor|
+    AsyncFutures::ProcessExecutor.new(max_workers: 1).shutdown do |executor|
       future1 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
       future2 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
       future3 = executor.submit(@sleep_mult) { |sleep_mult| sleep(0.02 * sleep_mult) }
@@ -232,7 +210,7 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
   def test_reap_after # rubocop:disable Metrics/AbcSize
     skip 'skip everywhere for now'
-    AsyncFutures::RactorExecutor.new(max_workers: 1, reap_after: 0.03 * @sleep_mult).shutdown do |new_executor|
+    AsyncFutures::ProcessExecutor.new(max_workers: 1, reap_after: 0.03 * @sleep_mult).shutdown do |new_executor|
       count1 = Thread.list.size
       future1 = new_executor.submit { sleep(0.01 * @sleep_mult) }
       future2 = new_executor.submit { sleep(0.01 * @sleep_mult) }
@@ -252,7 +230,7 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
   def test_no_reap_after # rubocop:disable Metrics/AbcSize
     skip 'skip everywhere for now'
-    AsyncFutures::RactorExecutor.new(max_workers: 1, reap_after: nil).shutdown do |new_executor|
+    AsyncFutures::ProcessExecutor.new(max_workers: 1, reap_after: nil).shutdown do |new_executor|
       count1 = Thread.list.size
       future1 = new_executor.submit { sleep(0.01 * @sleep_mult) }
       future2 = new_executor.submit { sleep(0.01 * @sleep_mult) }
