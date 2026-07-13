@@ -6,6 +6,9 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def setup
     # skip 'Keep coverage pristine for now'
 
+    # FIXME: remove this once ractors are completely extracted
+    Warning[:experimental] = false
+
     # The Ractor API was different before version 4.x of Ruby.
     skip "ractor_executor not supported in version '#{RUBY_VERSION}'" if RUBY_VERSION =~ /^3\./
     if RUBY_ENGINE =~ /jruby/ || RUBY_ENGINE =~ /truffleruby/
@@ -30,6 +33,9 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def teardown
     @executor&.shutdown(wait: true)
     AsyncFutures.logger = nil
+
+    # FIXME: remove this once ractors are completely extracted
+    Warning[:experimental] = true
   end
 
   def test_submit_raises_argument_error_without_block
