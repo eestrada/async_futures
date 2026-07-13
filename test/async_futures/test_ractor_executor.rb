@@ -6,6 +6,9 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def setup
     # skip 'Keep coverage pristine for now'
 
+    # Turn off Ractor warnings getting printed.
+    Warning[:experimental] = false
+
     # The Ractor API was different before version 4.x of Ruby.
     skip "ractor_executor not supported in version '#{RUBY_VERSION}'" if RUBY_VERSION =~ /^3\./
     if RUBY_ENGINE =~ /jruby/ || RUBY_ENGINE =~ /truffleruby/
@@ -30,6 +33,8 @@ class TestRactorExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def teardown
     @executor&.shutdown(wait: true)
     AsyncFutures.logger = nil
+
+    Warning[:experimental] = true
   end
 
   def test_new_with_conflicting_args
