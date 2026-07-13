@@ -4,6 +4,8 @@ require_relative 'executor'
 
 require 'etc'
 require 'set' # rubocop:disable Lint/RedundantRequireStatement
+require 'json'
+require 'json/add/exception'
 
 module AsyncFutures
   # `Executor` implementation based on Process forking
@@ -69,41 +71,19 @@ module AsyncFutures
     # if you are absolutely certain that submitted values
     # have no remaining references in the submitting ractor
     # otherwise the submitting ractor will error when accessing them later.
-    def initialize( # rubocop:disable Metrics/AbcSize,Metrics/ParameterLists
+    def initialize(
       max_workers: nil,
-      worker_name_prefix: nil,
-      move_result: false,
-      move_args: false,
-      make_args_shareable: false,
-      copy_args: false
+      worker_name_prefix: nil
     )
-      if copy_args && !make_args_shareable
-        raise ArgumentError.new('`copy_args` cannot be true unless `make_args_shareable` is also true')
-      end
-
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
       @worker_name_prefix = worker_name_prefix
 
-      # This value is passed into worker Ractors.
-      # If the caller passed something not shareable,
-      # it would error when we spawn workers later.
-      # Boolean values are always safely shareable
-      # and since we only care about the truthiness of this value
-      # double negation makes sense here.
-      @move_result = !!move_result # rubocop:disable Style/DoubleNegation
-
-      @move_args = move_args
-      @make_args_shareable = make_args_shareable
-      @copy_args = copy_args
       @mutex = Thread::Mutex.new
       @condition = Thread::ConditionVariable.new
       @tasks = Thread::Queue.new
-      @worker_tasks_ports = Thread::Queue.new
 
       # All private variables after this point
       # require synchronization to safely interact with.
-      @results_ports = {}
-      @worker_to_task_port_map = ObjectSpace::WeakKeyMap.new
       @futures = {}
 
       @pool = Set.new
@@ -127,19 +107,9 @@ module AsyncFutures
       raise ArgumentError.new('No block given') unless block
 
       Future.new.tap do |future|
-        # Attempt to make everything shareable upon submit
-        # so that if making shareable would raise an exception
-        # the caller can know immediately
-        # that a given value won't work.
-        # Otherwise the errors could easily get swallowed in a background thread
-        # and the caller would never know.
-        sh_block = Ractor.shareable_proc(&block)
-        sh_args = @make_args_shareable ? Ractor.make_shareable(args, copy: @copy_args) : args
-        sh_kwargs = @make_args_shareable ? Ractor.make_shareable(kwargs, copy: @copy_args) : kwargs
-        ractor_task = [future, sh_block, sh_args, sh_kwargs]
+        task_ary = [future, block, args, kwargs]
 
-        @tasks.push(ractor_task)
-        maybe_spawn_worker
+        @tasks.push(task_ary)
         maybe_spawn_task_feeder
         maybe_spawn_result_feeder
       rescue ClosedQueueError
@@ -155,12 +125,16 @@ module AsyncFutures
       true
     end
 
+    def pool_size
+      synchronize { @pool.size }
+    end
+
     # :nocov:
 
     # Shutdown `ProcessExecutor` instance.
     #
     # See `AsyncFutures::Executor.shutdown` for full documentation.
-    def shutdown(wait: true, cancel_futures: false, &block)
+    def shutdown(wait: true, cancel_futures: false, &block) # rubocop:disable Metrics/CyclomaticComplexity
       block&.call(self)
     ensure
       unless check_and_set_shutdown!
@@ -171,7 +145,7 @@ module AsyncFutures
           end
         end
 
-        synchronize { wait_until { @worker_tasks_ports.closed? && @worker_tasks_ports.empty? } } if wait
+        synchronize { wait_until { @pool.empty? && @tasks.closed? && @tasks.empty? } } if wait
       end
     end
 
@@ -222,27 +196,29 @@ module AsyncFutures
 
           next unless future.set_running_or_notify_cancel
 
-          next_tasks_port = @worker_tasks_ports.pop
+          future_object_id = future.object_id
 
-          # `block` was already made shareable
-          # in the submitting thread.
-          # `args` and `kwargs` _may_ have been made shareable already.
-          # `object_id` is an `Integer`
-          # and thus is inherently immutable and shareable.
-          ractor_task = [future.object_id, block, args, kwargs].freeze
-          next_tasks_port.send(ractor_task, move: @move_args)
+          write_pipe = synchronize do
+            wait_until { @pool.size <= @max_workers }
 
-          synchronize do
-            @futures[future.object_id] = future # rubocop:disable Lint/HashCompareByIdentity
+            read_pipe, write_pipe = IO.pipe
+            @pool.add(read_pipe)
+            @futures[future_object_id] = future
+            write_pipe
           end
-        end
 
-        # once the task queue closes
-        # that means the executor is shutdown.
-        # We need to shutdown all workers until
-        # the worker queue gets closed by the `@results_feeder`.
-        while (next_tasks_port = @worker_tasks_ports.pop)
-          next_tasks_port.send(:shutdown)
+          Kernel.fork do
+            result = block.call(*args, **kwargs)
+            marshalled = Marshal.dump(result)
+            json_result = JSON.dump([future_object_id, :result, marshalled])
+          rescue Exception => e # rubocop:disable Lint/RescueException
+            json_exc = JSON.dump([future_object_id, :exception, e.as_json])
+            write_pipe.write(json_exc)
+          else
+            write_pipe.write(json_result)
+          ensure
+            write_pipe.close
+          end
         end
       ensure
         synchronize do
@@ -260,100 +236,43 @@ module AsyncFutures
         Thread.current.name = feeder_name
 
         loop do
-          break_loop, results_ports_keys = synchronize do
-            wait_until { !@results_ports.empty? || (@pool.empty? && @tasks.closed? && @tasks.empty?) }
+          break_loop, results_pipes = synchronize do
+            wait_until { !@pool.empty? || (@pool.empty? && @tasks.closed? && @tasks.empty?) }
 
-            [@results_ports.empty? && @pool.empty? && @tasks.closed? && @tasks.empty?, @results_ports.keys]
+            [@pool.empty? && @tasks.closed? && @tasks.empty?, @pool.dup]
           end
 
           break if break_loop
 
-          port, msg = Ractor.select(*results_ports_keys)
+          ready_pipes = results_pipes.filter { |p| p.wait_readable(0.0001) }
 
-          case msg
-          when :exited
-            synchronize do
-              worker = @results_ports[port]
-              @pool.delete worker
-              @results_ports.delete(port)
-            end
-            port.close
-          else # Must be an Array
-            future_id, type, value = msg
+          next if ready_pipes.empty?
 
-            future = synchronize { @futures.delete(future_id) { raise "future_id not found #{future_id}" } }
+          next_pipe = ready_pipes.first
+          synchronize { @pool.delete(next_pipe) }
 
-            future.set_exception(value) if type.equal? :exception
-            future.set_result(value) if type.equal? :result
+          msg_raw = next_pipe.read
+          next_pipe.close
 
-            tasks_port = synchronize do
-              worker = @results_ports[port]
-              @worker_to_task_port_map[worker]
-            end
-            @worker_tasks_ports.push tasks_port
-          end
-        end
+          msg = JSON.parse(msg_raw)
+          future_id, type, value = msg
+          future = synchronize { @futures.delete(future_id) { raise "future_id not found #{future_id}" } }
 
-        # We synchronize here so that we broadcast the condition afterward.
-        synchronize { @worker_tasks_ports.close }
-      end
-    end
-
-    # Only spawn a worker if one is needed.
-    def maybe_spawn_worker
-      # synchronize when interacting directly with @pool
-      spawn_worker if synchronize { @pool.empty? || (!@tasks.empty? && @pool.size < @max_workers) }
-    end
-
-    # Always spawn a worker
-    def spawn_worker # rubocop:disable Metrics/AbcSize
-      new_results_port = Ractor::Port.new
-
-      # Coverage doesn't currently work outside the main Ractor,
-      # so just skip it for now.
-      # :nocov:
-      worker = Ractor.new(
-        new_results_port,
-        @move_result,
-        name: new_worker_name
-      ) do |results_port, move_result|
-        tasks_port = Ractor::Port.new
-
-        results_port.send(tasks_port)
-
-        Ractor.current.default_port.close
-
-        loop do
-          case (task = tasks_port.receive)
-          when :shutdown
-            break
-          when Array
-            future_id, block, args, kwargs = task
-          else
-            raise RactorError.new("Unknown message received: #{task}")
+          if type.equal? :exception
+            exc_value = Exception.json_create(value)
+            future.set_exception(exc_value)
           end
 
-          begin
-            result = block.call(*args, **kwargs)
-          rescue Exception => e # rubocop:disable Lint/RescueException
-            results_port.send([future_id, :exception, e], move: move_result)
-          else
-            results_port.send([future_id, :result, result], move: move_result)
+          if type.equal? :result
+            result_value = Marshal.load(value) # rubocop:disable Security/MarshalLoad
+            future.set_result(result_value)
           end
         end
       ensure
-        tasks_port.close
+        synchronize do
+          @result_feeder = nil
+        end
       end
-      # :nocov:
-
-      new_tasks_port = new_results_port.receive
-      worker.monitor new_results_port
-      synchronize do
-        @results_ports[new_results_port] = worker
-        @pool.add worker
-        @worker_to_task_port_map[worker] = new_tasks_port
-      end
-      @worker_tasks_ports.push new_tasks_port
     end
   end
 end
