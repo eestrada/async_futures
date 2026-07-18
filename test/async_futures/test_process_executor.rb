@@ -106,8 +106,6 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_set_worker_name_prefix
-    skip 'Need to implement this'
-
     AsyncFutures::ProcessExecutor.new(worker_name_prefix: 'best').shutdown do |executor|
       future1 = executor.submit { $PROGRAM_NAME }
 
@@ -118,7 +116,7 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_only_one_worker # rubocop:disable Metrics/AbcSize
-    skip 'Timings are working right now'
+    skip "Timings aren't working right now"
 
     AsyncFutures::ProcessExecutor.new(max_workers: 1).shutdown do |executor|
       before_time = Time.now

@@ -198,17 +198,18 @@ module AsyncFutures
 
           future_object_id = future.object_id
 
-          read_pipe, write_pipe = synchronize do
-            wait_until { @pool.size <= @max_workers }
+          read_pipe, write_pipe, worker_name = synchronize do
+            wait_until { @pool.size < @max_workers }
 
             read_pipe, write_pipe = IO.pipe
             @pool.add(read_pipe)
             @futures[future_object_id] = future
-            [read_pipe, write_pipe]
+            [read_pipe, write_pipe, new_worker_name]
           end
 
           Kernel.fork do
             read_pipe.close
+            $PROGRAM_NAME = worker_name
             result = block.call(*args, **kwargs)
             marshalled_result = Marshal.dump(result)
             json_result = JSON.dump([future_object_id, :result, marshalled_result])
