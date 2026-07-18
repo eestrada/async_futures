@@ -102,7 +102,7 @@ module AsyncFutures
     # they will not be reaped until the `ThreadExecutor` instance is `shutdown`.
     #
     # The parameter `worker_name_prefix` can be used
-    # to optionally add a prefix to generated `Thread` worker names.
+    # to optionally add a prefix to generated worker names.
     def initialize(
       max_workers: nil,
       strict_concurrency: false,
@@ -268,7 +268,7 @@ module AsyncFutures
     # Always spawn a worker
     def spawn_worker # rubocop:disable Metrics/AbcSize
       thread = Thread.new do
-        Thread.current.name = new_worker_name
+        AsyncFutures.worker_name = new_worker_name
         while (task = @tasks.pop(timeout: @reap_after))
           synchronize { @pool[Thread.current] = true }
 

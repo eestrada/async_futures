@@ -55,6 +55,20 @@ class TestFiberExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     end
   end
 
+  def test_set_worker_name_prefix
+    Fiber.schedule do
+      AsyncFutures::FiberExecutor.new(worker_name_prefix: 'best').shutdown do |executor|
+        future1 = executor.submit { AsyncFutures.worker_name }
+
+        result = future1.result
+
+        assert_match(/^best_\d+$/, result)
+
+        refute_match AsyncFutures.worker_name, result
+      end
+    end
+  end
+
   def test_submit_raises_returns_exceptional_future
     Fiber.schedule do
       AsyncFutures::FiberExecutor.new.shutdown do |executor|

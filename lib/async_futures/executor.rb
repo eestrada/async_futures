@@ -5,7 +5,19 @@ require_relative 'future'
 
 require 'timeout'
 
-module AsyncFutures
+module AsyncFutures # rubocop:disable Style/Documentation
+  class << self
+    # Set the name for the current worker.
+    def worker_name=(name)
+      Fiber[:async_futures_worker_name] = name.to_s
+    end
+
+    # Get the name for the current worker.
+    def worker_name
+      Fiber[:async_futures_worker_name]
+    end
+  end
+
   # `Executor` mixin module.
   # Has a simple implementation
   # that just runs submitted blocks immediately

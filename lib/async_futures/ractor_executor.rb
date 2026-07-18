@@ -41,7 +41,7 @@ module AsyncFutures
     # when tasks are added to the work queue.
     #
     # The parameter `worker_name_prefix` can be used
-    # to optionally add a prefix to generated `Thread` names.
+    # to optionally add a prefix to generated worker names.
     #
     # If the `move_result` keyword argument is `true`,
     # results from worker ractors will be moved instead of copied.
@@ -309,8 +309,9 @@ module AsyncFutures
       worker = Ractor.new(
         new_results_port,
         @move_result,
-        name: new_worker_name
-      ) do |results_port, move_result|
+        new_worker_name
+      ) do |results_port, move_result, worker_name|
+        AsyncFutures.worker_name = worker_name
         tasks_port = Ractor::Port.new
 
         results_port.send(tasks_port)

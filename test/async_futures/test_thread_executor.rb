@@ -252,13 +252,15 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_set_worker_name_prefix
-    new_executor = AsyncFutures::ThreadExecutor.new(worker_name_prefix: 'best')
+    AsyncFutures::ThreadExecutor.new(worker_name_prefix: 'best').shutdown do |executor|
+      future1 = executor.submit { AsyncFutures.worker_name }
 
-    future1 = new_executor.submit { Thread.current.name }
+      result = future1.result
 
-    result = future1.result
+      assert_match(/^best_\d+$/, result)
 
-    assert_match(/^best_\d+$/, result)
+      refute_match AsyncFutures.worker_name, result
+    end
   end
 
   def test_only_one_worker

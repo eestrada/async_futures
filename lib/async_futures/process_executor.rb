@@ -49,7 +49,7 @@ module AsyncFutures
     # when tasks are added to the work queue.
     #
     # The parameter `worker_name_prefix` can be used
-    # to optionally add a prefix to generated `Thread` names.
+    # to optionally add a prefix to generated worker names.
     #
     # If the `move_result` keyword argument is `true`,
     # results from worker ractors will be moved instead of copied.
@@ -209,7 +209,7 @@ module AsyncFutures
 
           Kernel.fork do
             read_pipe.close
-            $PROGRAM_NAME = worker_name
+            AsyncFutures.worker_name = worker_name
             result = block.call(*args, **kwargs)
             marshalled_result = Marshal.dump(result)
             json_result = JSON.dump([future_object_id, :result, marshalled_result])

@@ -65,11 +65,16 @@ module AsyncFutures
     # so it is safe to use a single `FiberExecutor` instance across multiple threads.
     # However each thread must have its own `Fiber::Scheduler` set
     # in order to successfully call `submit`.
-    def initialize(treat_as_concurrent: false)
+    #
+    # The parameter `worker_name_prefix` can be used
+    # to optionally add a prefix to generated worker names.
+    def initialize(treat_as_concurrent: false, worker_name_prefix: nil)
       raise Error.new('No Fiber.scheduler set') unless Fiber.scheduler
 
       super()
       @treat_as_concurrent = treat_as_concurrent
+      @worker_name_prefix = worker_name_prefix
+      @worker_count = 0
       @is_shutdown = false
       @futures = Set.new
       @mutex = Thread::Mutex.new
@@ -84,16 +89,19 @@ module AsyncFutures
       raise ArgumentError.new('No block given') unless block
 
       Future.new.tap do |future|
-        @mutex.synchronize do
+        synchronize do
           raise 'FiberExecutor instance is shutdown' if @is_shutdown
 
           # Need to set this immediately to ensure DeadlockError is raised appropriately.
           future.thread = Thread.current
           @futures.add future
-          future.add_done_callback { |f| @mutex.synchronize { @futures.delete f } }
+          future.add_done_callback { |f| synchronize { @futures.delete f } }
         end
 
-        Fiber.schedule { future.complete(*args, **kwargs, &block) }
+        Fiber.schedule do
+          AsyncFutures.worker_name = new_worker_name
+          future.complete(*args, **kwargs, &block)
+        end
       end
     end
 
@@ -114,12 +122,12 @@ module AsyncFutures
       block&.call(self)
     ensure
       unless check_and_set_shutdown!
-        futures_dup = @mutex.synchronize { @futures.dup } if wait || cancel_futures
+        futures_dup = synchronize { @futures.dup } if wait || cancel_futures
         futures_dup.reject!(&:cancel) if cancel_futures
 
         # This will deadlock outside a FiberScheduler,
         futures_dup.reject!(&:join) if wait
-        @mutex.synchronize { @futures.replace(@futures & futures_dup) } if wait || cancel_futures
+        synchronize { @futures.replace(@futures & futures_dup) } if wait || cancel_futures
       end
     end
 
@@ -129,11 +137,25 @@ module AsyncFutures
     # then sets internal shutdown state to `true`.
     # This is all done atomically to avoid race conditions.
     def check_and_set_shutdown!
-      @mutex.synchronize do
+      synchronize do
         return true if @is_shutdown
 
         @is_shutdown = true
         return false
+      end
+    end
+
+    def synchronize(&)
+      @mutex.synchronize(&)
+    end
+
+    def new_worker_name
+      synchronize do
+        if @worker_name_prefix
+          "#{@worker_name_prefix}_#{@worker_count += 1}"
+        else
+          "#{self.class.name}_#{object_id}_worker_#{@worker_count += 1}"
+        end
       end
     end
   end

@@ -107,11 +107,13 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
   def test_set_worker_name_prefix
     AsyncFutures::ProcessExecutor.new(worker_name_prefix: 'best').shutdown do |executor|
-      future1 = executor.submit { $PROGRAM_NAME }
+      future1 = executor.submit { AsyncFutures.worker_name }
 
       result = future1.result
 
       assert_match(/^best_\d+$/, result)
+
+      refute_match AsyncFutures.worker_name, result
     end
   end
 
