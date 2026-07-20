@@ -151,6 +151,12 @@ module AsyncFutures
 
     private
 
+    # The smallest positive float value,
+    # and thus the smallest possible timeout value.
+    SMALLEST_TIMEOUT = 0.0.next_float
+
+    private_constant :SMALLEST_TIMEOUT
+
     def synchronize(&block)
       @mutex.synchronize do
         block.call
@@ -247,15 +253,17 @@ module AsyncFutures
 
           break if break_loop
 
-          ready_pipes = results_pipes.filter { |p| p.wait_readable(0.0001) }
+          next_pipe = results_pipes.lazy.filter { |p| p.wait_readable(SMALLEST_TIMEOUT) }.first
 
-          next if ready_pipes.empty?
+          next if next_pipe.nil?
 
-          next_pipe = ready_pipes.first
           synchronize { @pool.delete(next_pipe) }
 
-          msg_raw = next_pipe.read
-          next_pipe.close
+          msg_raw = begin
+            next_pipe.read
+          ensure
+            next_pipe.close
+          end
 
           msg = JSON.parse(msg_raw)
           future_id, type, value = msg
