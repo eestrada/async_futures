@@ -239,6 +239,8 @@ module AsyncFutures
             [read_pipe, write_pipe, new_worker_name]
           end
 
+          # FIXME: Ignore coverage in subprocess for now.
+          # :nocov:
           Kernel.fork do
             read_pipe.close
             AsyncFutures.worker_name = worker_name
@@ -256,6 +258,8 @@ module AsyncFutures
           ensure
             write_pipe.close
           end
+          # :nocov:
+
           write_pipe.close
         end
       ensure
