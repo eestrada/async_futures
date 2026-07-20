@@ -14,6 +14,7 @@ GEM
       metrics (~> 0.12)
       traces (~> 0.18)
     backport (1.2.0)
+    base64 (0.3.0)
     benchmark (0.5.0)
     console (1.35.1)
       fiber-annotation
@@ -178,6 +179,7 @@ PLATFORMS
 DEPENDENCIES
   async
   async_futures!
+  base64
   debug
   irb
   logger
@@ -200,6 +202,7 @@ CHECKSUMS
   async (2.39.0) sha256=df18730073f2bbb45788077dfa20cb365ecc1b9453969f44de6796b5191a00aa
   async_futures (0.1.2)
   backport (1.2.0) sha256=912c7dfdd9ee4625d013ddfccb6205c3f92da69a8990f65c440e40f5b2fc7f75
+  base64 (0.3.0) sha256=27337aeabad6ffae05c265c450490628ef3ebd4b67be58257393227588f5a97b
   benchmark (0.5.0) sha256=465df122341aedcb81a2a24b4d3bd19b6c67c1530713fd533f3ff034e419236c
   bundler (4.0.11) sha256=5bcec0fb78302e48d02ee46f10ee6e6942be647ba5b44a6d1ddfda9a240ce785
   console (1.35.1) sha256=6d2bfdd0bc7e57830540a6c0ce3bc83fff471844db44be89a38aef9f95df296a

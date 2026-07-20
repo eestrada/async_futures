@@ -5,6 +5,8 @@ source 'https://rubygems.org'
 # Specify your gem's dependencies in async_future.gemspec
 gemspec
 
+gem 'base64'
+
 group 'testing' do
   gem 'async'
   gem 'logger'

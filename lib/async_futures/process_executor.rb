@@ -5,20 +5,43 @@ require_relative 'executor'
 require 'etc'
 require 'set' # rubocop:disable Lint/RedundantRequireStatement
 require 'json'
-require 'json/add/exception'
+require 'base64'
 
 module AsyncFutures
   # `Executor` implementation based on Process forking
   # that uses up to `max_workers` to execute calls in parallel.
   #
-  # `ProcessExecutor` specific submission considerations:
+  # `ProcessExecutor` specific considerations:
+  #
+  # The `ProcessExecutor` class is not required by default
+  # when loading the overall `AsyncFutures` gem.
+  #
+  # ```ruby
+  # # ProcessExecutor *NOT* loaded
+  # require 'async_futures'
+  #
+  # # ProcessExecutor loaded
+  # require 'async_futures/process_executor'
+  # ```
+  #
+  # This is because it depends on the `'base64'` gem.
+  # This gem was bundled in Ruby 3.3 and prior,
+  # but was unbundled in 3.4 and later
+  # (even though it is still the Ruby core team that maintains this gem).
+  # One goal of `AsyncFutures` is to have no hard dependencies
+  # on code outside the standard library.
+  # Because this Executor does have a hard gem dependency,
+  # it is not loaded by default.
+  #
+  # If you want to use this Executor in Ruby 3.4 or later,
+  # you will need to install the `'base64'` gem as well.
   #
   # For `ProcessExecutor` the tasks are never run immediately upon submission.
   # They are placed into a work queue
   # to be picked up later.
   #
   # Process workers are not reused for work
-  # loke Threads and Ractors are.
+  # like Threads and Ractors are.
   # Each task gets a freshly forked process.
   # This is because marshalling anonymous blocks is not trivial in Ruby;
   # it is simpler to just fork after the block closure has been defined.
@@ -28,8 +51,11 @@ module AsyncFutures
   # Consequently, this executor is only really useful for expensive calculations
   # where the startup time for a process
   # is dwarfed by the time needed for the actual work.
+  # Although modern machines can fork a process thousands of times per second,
+  # this is very, very slow when machines can do billions of operations per second.
+  #
   # If `RactorExecutor` is available on your Ruby engine/version
-  # it is almost certainly a better choice for parallel work.
+  # it is probably a better choice for parallel work.
   #
   # This does _not_ guarantee
   # that any particular task will be run concurrently
@@ -218,9 +244,12 @@ module AsyncFutures
             AsyncFutures.worker_name = worker_name
             result = block.call(*args, **kwargs)
             marshalled_result = Marshal.dump(result)
-            json_result = JSON.dump([future_object_id, :result, marshalled_result])
+            b64_enc = Base64.strict_encode64(marshalled_result)
+            json_result = JSON.dump([future_object_id, :result, b64_enc])
           rescue Exception => e # rubocop:disable Lint/RescueException
-            json_exc = JSON.dump([future_object_id, :exception, e.as_json])
+            marshalled_exc = Marshal.dump(e)
+            b64_enc = Base64.strict_encode64(marshalled_exc)
+            json_exc = JSON.dump([future_object_id, :exception, b64_enc])
             write_pipe.write(json_exc)
           else
             write_pipe.write(json_result)
@@ -267,17 +296,12 @@ module AsyncFutures
 
           msg = JSON.parse(msg_raw)
           future_id, type, value = msg
+          b64_dec = Base64.strict_decode64(value)
+          unmarshalled_value = Marshal.load(b64_dec) # rubocop:disable Security/MarshalLoad
           future = synchronize { @futures.delete(future_id) { raise "future_id not found #{future_id}" } }
 
-          if type.to_sym.equal? :exception
-            exc_value = Exception.json_create(value)
-            future.set_exception(exc_value)
-          end
-
-          if type.to_sym.equal? :result
-            result_value = Marshal.load(value) # rubocop:disable Security/MarshalLoad
-            future.set_result(result_value)
-          end
+          future.set_exception(unmarshalled_value) if type.to_sym.equal? :exception
+          future.set_result(unmarshalled_value) if type.to_sym.equal? :result
         end
       ensure
         synchronize do

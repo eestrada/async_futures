@@ -68,8 +68,6 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     assert_instance_of AsyncFutures::Future, future1
     refute_nil future1.exception
 
-    skip "Doesn't return the right Exception type"
-
     assert_instance_of RuntimeError, future1.exception
     assert_predicate future1, :done?
   end
