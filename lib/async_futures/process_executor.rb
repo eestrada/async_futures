@@ -118,10 +118,12 @@ module AsyncFutures
       Future.new.tap do |future|
         task_ary = [future, block, args, kwargs]
 
+        synchronize { @futures[future.object_id] = future } # rubocop:disable Lint/HashCompareByIdentity
         @tasks.push(task_ary)
         maybe_spawn_task_feeder
         maybe_spawn_result_feeder
       rescue ClosedQueueError
+        @futures.delete(future.object_id)
         raise 'ProcessExecutor instance is shutdown'
       end
     end
@@ -143,7 +145,7 @@ module AsyncFutures
     # Shutdown `ProcessExecutor` instance.
     #
     # See `AsyncFutures::Executor.shutdown` for full documentation.
-    def shutdown(wait: true, cancel_futures: false, &block) # rubocop:disable Metrics/CyclomaticComplexity
+    def shutdown(wait: true, cancel_futures: false, &block)
       block&.call(self)
     ensure
       unless check_and_set_shutdown!
@@ -154,11 +156,18 @@ module AsyncFutures
           end
         end
 
-        synchronize { wait_until { @pool.empty? && @tasks.closed? && @tasks.empty? } } if wait
+        synchronize { wait_until { all_work_complete? } } if wait
       end
     end
 
     private
+
+    # If the Executor is shutdown *AND* all remaining work as been completed.
+    #
+    # Must be called within a `synchronize` block.
+    def all_work_complete?
+      @pool.empty? && @tasks.closed? && @tasks.empty? && @futures.empty?
+    end
 
     # The smallest positive float value,
     # and thus the smallest possible timeout value.
@@ -209,7 +218,10 @@ module AsyncFutures
         while (task = @tasks.pop)
           future, block, args, kwargs = task
 
-          next unless future.set_running_or_notify_cancel
+          unless future.set_running_or_notify_cancel
+            synchronize { @futures.delete(future.object_id) }
+            next
+          end
 
           future_object_id = future.object_id
 
@@ -218,7 +230,6 @@ module AsyncFutures
 
             read_pipe, write_pipe = IO.pipe
             @pool.add(read_pipe)
-            @futures[future_object_id] = future
             [read_pipe, write_pipe, new_worker_name]
           end
 
@@ -254,15 +265,15 @@ module AsyncFutures
       synchronize { spawn_result_feeder unless @result_feeder }
     end
 
-    def spawn_result_feeder # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
+    def spawn_result_feeder # rubocop:disable Metrics/AbcSize
       @result_feeder = Thread.new("result_feeder_#{object_id}") do |feeder_name|
         Thread.current.name = feeder_name
 
         loop do
           break_loop, results_pipes = synchronize do
-            wait_until { !@pool.empty? || (@pool.empty? && @tasks.closed? && @tasks.empty?) }
+            wait_until { all_work_complete? || !@pool.empty? }
 
-            [@pool.empty? && @tasks.closed? && @tasks.empty?, @pool.dup]
+            [all_work_complete?, @pool.dup]
           end
 
           break if break_loop
