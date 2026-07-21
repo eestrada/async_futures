@@ -138,36 +138,28 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   end
 
   def test_cancel_futures_in_shutdown # rubocop:disable Metrics/AbcSize
-    skip 'too ractor specific right now'
-
     AsyncFutures::ProcessExecutor.new(max_workers: 1).shutdown do |executor|
-      future0 = executor.submit { Ractor::Port.new }
+      future1 = executor.submit { sleep(0.1) }
+      future2 = executor.submit { sleep(0.1) }
+      future3 = executor.submit { sleep(0.1) }
 
-      p0 = future0.result
-
-      future1 = executor.submit(p0, &:receive)
-      future2 = executor.submit(p0, &:receive)
-      future3 = executor.submit(p0, &:receive)
-
-      p0.send 1
-      future1.join
-
-      assert_equal 1, future1.result
+      # make sure first job gets picked up.
+      Thread.pass
 
       executor.shutdown(wait: false, cancel_futures: true)
 
-      refute_predicate future1, :cancelled?
+      future1.join
 
-      p0.send 2
-      p0.send 3
+      assert_equal 0, future1.result
+
+      refute_predicate future1, :cancelled?
 
       future2.join
       future3.join
 
       # Based on scheduling race conditions,
       # future2 could be cancelled or not.
-      # We don't know when the worker thread will take control
-      # and pick up another task.
+      # We don't know when the worker will pick up another task.
       # However, because there is only one worker thread,
       # we know it can't pick up the third submitted task
       # while it is "working" on the second.
@@ -212,47 +204,6 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
       refute_predicate future1, :cancelled?
       assert_predicate future2, :cancelled?
       assert_predicate future3, :cancelled?
-    end
-  end
-
-  def test_reap_after # rubocop:disable Metrics/AbcSize
-    skip 'skip everywhere for now'
-    AsyncFutures::ProcessExecutor.new(max_workers: 1, reap_after: 0.03 * @sleep_mult).shutdown do |new_executor|
-      count1 = Thread.list.size
-      future1 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-      future2 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-      future3 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-      future1.result
-      future2.result
-      future3.result
-      count2 = Thread.list.size
-      # sleep should cause worker thread to self-reap
-      sleep 0.05 * @sleep_mult
-      count3 = Thread.list.size
-
-      assert_operator count2, :>, count1
-      assert_operator count2, :>, count3
-    end
-  end
-
-  def test_no_reap_after # rubocop:disable Metrics/AbcSize
-    skip 'skip everywhere for now'
-    AsyncFutures::ProcessExecutor.new(max_workers: 1, reap_after: nil).shutdown do |new_executor|
-      count1 = Thread.list.size
-      future1 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-      future2 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-      future3 = new_executor.submit { sleep(0.01 * @sleep_mult) }
-      future1.result
-      future2.result
-      future3.result
-      count2 = Thread.list.size
-      # worker thread will never self-reap
-      sleep 0.05 * @sleep_mult
-      count3 = Thread.list.size
-
-      assert_operator count2, :>, count1
-      refute_operator count2, :>, count3
-      assert_equal count2, count3
     end
   end
 end

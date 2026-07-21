@@ -13,8 +13,7 @@ if defined?(SimpleCov)
       SimpleCov::Formatter::CoberturaFormatter,
     ]
 
-    # FIXME: get this working
-    # enable_for_subprocesses true
+    enable_for_subprocesses true
     add_filter '/test/'
 
     case RUBY_ENGINE

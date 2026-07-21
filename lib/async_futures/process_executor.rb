@@ -7,6 +7,10 @@ require 'set' # rubocop:disable Lint/RedundantRequireStatement
 require 'json'
 require 'base64'
 
+# :nocov:
+raise LoadError.new('ProcessExecutor requires `Process.fork`') unless Process.respond_to?(:fork)
+# :nocov:
+
 module AsyncFutures
   # `Executor` implementation based on Process forking
   # that uses up to `max_workers` to execute calls in parallel.
@@ -76,27 +80,6 @@ module AsyncFutures
     #
     # The parameter `worker_name_prefix` can be used
     # to optionally add a prefix to generated worker names.
-    #
-    # If the `move_result` keyword argument is `true`,
-    # results from worker ractors will be moved instead of copied.
-    # Moving is faster than copying,
-    # but less safe
-    # if the worker ractor keeps the values around for some reason
-    # (in a cache, for example).
-    # If you aren't doing something like caching inside workers
-    # you are probably safe to set this to `true`.
-    #
-    # If the `move_args` keyword argument is `true`,
-    # `args` and `kwargs` will be moved instead of copied
-    # from the submitting ractor to the worker ractors.
-    # Moving is faster than copying,
-    # but is even less safe than `move_result`
-    # because the submitting ractor
-    # is more likely to have kept references to the submitted values.
-    # You should only set this to `true`
-    # if you are absolutely certain that submitted values
-    # have no remaining references in the submitting ractor
-    # otherwise the submitting ractor will error when accessing them later.
     def initialize(
       max_workers: nil,
       worker_name_prefix: nil
@@ -239,9 +222,7 @@ module AsyncFutures
             [read_pipe, write_pipe, new_worker_name]
           end
 
-          # FIXME: Ignore coverage in subprocess for now.
-          # :nocov:
-          Kernel.fork do
+          pid = Process.fork do
             read_pipe.close
             AsyncFutures.worker_name = worker_name
             result = block.call(*args, **kwargs)
@@ -258,8 +239,8 @@ module AsyncFutures
           ensure
             write_pipe.close
           end
-          # :nocov:
 
+          Process.detach(pid)
           write_pipe.close
         end
       ensure
@@ -314,8 +295,8 @@ module AsyncFutures
       end
     end
 
-    def log_debug(&)
-      AsyncFutures.logger&.debug(&)
-    end
+    # def log_debug(&)
+    #   AsyncFutures.logger&.debug(&)
+    # end
   end
 end
