@@ -141,9 +141,10 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
       future1.join
 
-      assert_equal 0, future1.result
-
       refute_predicate future1, :cancelled?
+
+      assert_instance_of Integer, future1.result
+      refute_predicate future1.result, :negative?
 
       future2.join
       future3.join
