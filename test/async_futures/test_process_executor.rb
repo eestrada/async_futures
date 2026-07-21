@@ -4,6 +4,11 @@ require_relative 'minitest_helper'
 
 class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
   def setup
+    # No `Process.fork` available in these engines
+    if RUBY_ENGINE =~ /jruby/ || RUBY_ENGINE =~ /truffleruby/
+      skip "process_executor not supported in engine '#{RUBY_ENGINE}'"
+    end
+
     require 'async_futures/process_executor'
     require 'logger'
 
