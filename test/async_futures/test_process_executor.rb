@@ -106,6 +106,18 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     end
   end
 
+  # FIXME: actually test something related to daemonization.
+  # Currently this just exists to ensure full test line coverage.
+  def test_worker_daemonize
+    AsyncFutures::ProcessExecutor.new(daemonize_workers: true).shutdown do |executor|
+      future1 = executor.submit { 1 }
+
+      result = future1.result
+
+      assert_equal 1, result
+    end
+  end
+
   def test_only_one_worker # rubocop:disable Metrics/AbcSize
     skip "Timings aren't working right now"
 

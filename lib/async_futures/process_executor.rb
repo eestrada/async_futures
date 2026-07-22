@@ -80,12 +80,24 @@ module AsyncFutures
     #
     # The parameter `worker_name_prefix` can be used
     # to optionally add a prefix to generated worker names.
+    #
+    # The parameter `daemonize_workers`,
+    # if set to `true`,
+    # causes workers to reparent under the init process
+    # and allow it to reap them.
+    # If set to `false`,
+    # this will cause the Executor instance to use `Process.detach`
+    # on the PID of each spawned worker,
+    # which will create an extra Ruby thread to reap the PID of each worker.
+    # It defaults to `false`.
     def initialize(
       max_workers: nil,
-      worker_name_prefix: nil
+      worker_name_prefix: nil,
+      daemonize_workers: false
     )
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
       @worker_name_prefix = worker_name_prefix
+      @daemonize_workers = daemonize_workers
 
       @mutex = Thread::Mutex.new
       @condition = Thread::ConditionVariable.new
@@ -234,6 +246,10 @@ module AsyncFutures
           end
 
           pid = Process.fork do
+            # :nocov:
+            Process.daemon(true, true) if @daemonize_workers
+            # :nocov:
+
             read_pipe.close
             AsyncFutures.worker_name = worker_name
             result = block.call(*args, **kwargs)
@@ -251,7 +267,7 @@ module AsyncFutures
             write_pipe.close
           end
 
-          Process.detach(pid)
+          Process.detach(pid) unless @daemonize_workers
           write_pipe.close
         end
       ensure
