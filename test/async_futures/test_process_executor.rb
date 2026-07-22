@@ -106,14 +106,30 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     end
   end
 
-  # FIXME: actually test something related to daemonization.
-  # Currently this just exists to ensure full test line coverage.
-  def test_worker_daemonize
-    AsyncFutures::ProcessExecutor.new(daemonize_workers: true).shutdown do |executor|
-      future1 = executor.submit { 1 }
+  def test_worker_no_daemonize
+    AsyncFutures::ProcessExecutor.new(daemonize_workers: false).shutdown do |executor|
+      future1 = executor.submit { Process.ppid }
 
       result = future1.result
 
+      assert_instance_of Integer, result
+      assert_equal Process.pid, result
+
+      # Should NOT be child of init process.
+      refute_equal 1, result
+    end
+  end
+
+  def test_worker_daemonize
+    AsyncFutures::ProcessExecutor.new(daemonize_workers: true).shutdown do |executor|
+      future1 = executor.submit { Process.ppid }
+
+      result = future1.result
+
+      assert_instance_of Integer, result
+      refute_equal Process.pid, result
+
+      # Should be child of init process.
       assert_equal 1, result
     end
   end
