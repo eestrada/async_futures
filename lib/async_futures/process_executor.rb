@@ -90,7 +90,7 @@ module AsyncFutures
     # on the PID of each spawned worker,
     # which will create an extra Ruby thread to reap the PID of each worker.
     # It defaults to `false`.
-    def initialize(
+    def initialize( # rubocop:disable Metrics/AbcSize
       max_workers: nil,
       worker_name_prefix: nil,
       daemonize_workers: false
@@ -108,6 +108,7 @@ module AsyncFutures
       @futures = {}
 
       @pool = Set.new
+      @pids = Set.new
       @worker_count = 0
 
       @task_feeder = nil
@@ -118,7 +119,7 @@ module AsyncFutures
       maybe_spawn_task_feeder
       maybe_spawn_result_feeder
 
-      at_exit { shutdown(wait: false) }
+      at_exit { terminate_workers }
     end
 
     # Asynchronously submit a task for execution.
@@ -135,7 +136,7 @@ module AsyncFutures
         maybe_spawn_task_feeder
         maybe_spawn_result_feeder
       rescue ClosedQueueError
-        @futures.delete(future.object_id)
+        synchronize { @futures.delete(future.object_id) }
         raise 'ProcessExecutor instance is shutdown'
       end
     end
@@ -172,7 +173,39 @@ module AsyncFutures
       end
     end
 
+    # Send `SIGTERM` signal
+    # to all running workers.
+    #
+    # First shuts down the executor.
+    #
+    # No processes are signalled if `daemonize_workers` is `true`.
+    def terminate_workers
+      shutdown(wait: false, cancel_futures: true)
+      signal_workers('SIGTERM')
+    end
+
+    # Send `SIGKILL` signal
+    # to all running workers.
+    #
+    # First shuts down the executor.
+    #
+    # No processes are signalled if `daemonize_workers` is `true`.
+    def kill_workers
+      shutdown(wait: false, cancel_futures: true)
+      signal_workers('SIGKILL')
+    end
+
     private
+
+    def signal_workers(signal)
+      synchronize { @pids.dup }.each do |pid|
+        Process.kill(signal, pid)
+      rescue Errno::ECHILD, Errno::ESRCH
+        # Do nothing
+      ensure
+        synchronize { @pids.delete(pid) }
+      end
+    end
 
     # If the Executor is shutdown *AND* all remaining work as been completed.
     #
@@ -266,9 +299,12 @@ module AsyncFutures
           ensure
             write_pipe.close
           end
-
-          Process.detach(pid) unless @daemonize_workers
           write_pipe.close
+
+          next if @daemonize_workers
+
+          synchronize { @pids.add(pid) }
+          Process.detach(pid)
         end
       ensure
         synchronize do

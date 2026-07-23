@@ -124,6 +124,53 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     end
   end
 
+  def test_terminate_workers # rubocop:disable Metrics/AbcSize
+    AsyncFutures::ProcessExecutor.new(daemonize_workers: false).shutdown do |executor|
+      before_time = Time.now.to_f
+      future1 = executor.submit { sleep(1) }
+
+      sleep(0.001) until future1.running?
+
+      running_wait_time = Time.now.to_f - before_time
+
+      assert_operator running_wait_time, :<, 1
+
+      executor.terminate_workers
+      future1.join
+
+      skip 'This still sleeps the full time'
+
+      wait_time = Time.now.to_f - before_time
+
+      assert_operator wait_time, :<, 1
+    end
+  end
+
+  def test_kill_workers # rubocop:disable Metrics/AbcSize
+    AsyncFutures::ProcessExecutor.new(daemonize_workers: false).shutdown do |executor|
+      before_time = Time.now.to_f
+      future1 = executor.submit { sleep(1) }
+
+      sleep(0.001) until future1.running?
+
+      running_wait_time = Time.now.to_f - before_time
+
+      assert_operator running_wait_time, :<, 1
+
+      executor.kill_workers
+
+      skip 'This still sleeps the full time'
+
+      future1.join
+
+      future1.result
+
+      wait_time = Time.now.to_f - before_time
+
+      assert_operator wait_time, :<, 1
+    end
+  end
+
   def test_only_one_worker # rubocop:disable Metrics/AbcSize
     skip "Timings aren't working right now"
 
