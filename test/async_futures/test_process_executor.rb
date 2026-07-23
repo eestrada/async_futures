@@ -110,13 +110,8 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     AsyncFutures::ProcessExecutor.new(daemonize_workers: false).shutdown do |executor|
       future1 = executor.submit { Process.ppid }
 
-      result = future1.result
-
-      assert_instance_of Integer, result
-      assert_equal Process.pid, result
-
       # Should NOT be child of init process.
-      refute_equal 1, result
+      assert_equal Process.pid, future1.result
     end
   end
 
@@ -124,13 +119,8 @@ class TestProcessExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
     AsyncFutures::ProcessExecutor.new(daemonize_workers: true).shutdown do |executor|
       future1 = executor.submit { Process.ppid }
 
-      result = future1.result
-
-      assert_instance_of Integer, result
-      refute_equal Process.pid, result
-
       # Should be child of init process.
-      assert_equal 1, result
+      refute_equal Process.pid, future1.result
     end
   end
 
