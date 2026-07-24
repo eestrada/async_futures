@@ -177,8 +177,8 @@ module AsyncFutures
     # Shutdown `ThreadExecutor` instance.
     #
     # See `AsyncFutures::Executor.shutdown` for full documentation.
-    def shutdown(wait: true, cancel_futures: false, &block)
-      block&.call(self)
+    def shutdown(wait: true, cancel_futures: false)
+      yield(self) if block_given?
     ensure
       unless check_and_set_shutdown!
         if cancel_futures

@@ -215,8 +215,8 @@ module AsyncFutures # rubocop:disable Style/Documentation
     #
     # This method returns the return value of the block,
     # or `nil` if no block is given.
-    def shutdown(wait: true, cancel_futures: false, &block) # rubocop:disable Lint/UnusedMethodArgument
-      block&.call(self)
+    def shutdown(wait: true, cancel_futures: false) # rubocop:disable Lint/UnusedMethodArgument
+      yield(self) if block_given?
     ensure # rubocop:disable Lint/EmptyEnsure
       # Cleanup logic goes here.
       #

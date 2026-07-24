@@ -154,8 +154,8 @@ module AsyncFutures
     # Shutdown `RactorExecutor` instance.
     #
     # See `AsyncFutures::Executor.shutdown` for full documentation.
-    def shutdown(wait: true, cancel_futures: false, &block)
-      block&.call(self)
+    def shutdown(wait: true, cancel_futures: false)
+      yield(self) if block_given?
     ensure
       unless check_and_set_shutdown!
         if cancel_futures
@@ -171,9 +171,9 @@ module AsyncFutures
 
     private
 
-    def synchronize(&block)
+    def synchronize
       @mutex.synchronize do
-        block.call
+        yield
       ensure
         @condition.broadcast
       end

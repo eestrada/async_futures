@@ -216,8 +216,8 @@ module AsyncFutures
     #
     # It will return `true` if the block was run by this call
     # and `false` if it was *not* run by this call.
-    def complete(*args, **kwargs, &block) # rubocop:disable Style/ArgumentsForwarding,Naming/PredicateMethod
-      raise ArgumentError.new('No block given') unless block
+    def complete(*args, **kwargs) # rubocop:disable Style/ArgumentsForwarding,Naming/PredicateMethod
+      raise ArgumentError.new('No block given') unless block_given?
 
       begin
         return false unless set_running_or_notify_cancel(set_context: true)
@@ -227,7 +227,7 @@ module AsyncFutures
       end
 
       begin
-        result = block.call(*args, **kwargs) # rubocop:disable Style/ArgumentsForwarding
+        result = yield(*args, **kwargs) # rubocop:disable Style/ArgumentsForwarding
       rescue Exception => e # rubocop:disable Lint/RescueException
         set_exception(e)
       else
@@ -502,7 +502,7 @@ module AsyncFutures
     # Make all internal states private visibility
     private_constant :PENDING, :RUNNING, :CANCELLED, :CANCELLED_AND_NOTIFIED, :FINISHED
 
-    def private_join(timeout, &block)
+    def private_join(timeout)
       Timeout.timeout(timeout) do
         @mutex.synchronize do
           unless lockless_done?
@@ -511,7 +511,7 @@ module AsyncFutures
           end
 
           @condition.wait(@mutex) until lockless_done?
-          block.call
+          yield
         end
       end
     end

@@ -118,8 +118,8 @@ module AsyncFutures
     # Shutdown `FiberExecutor` instance.
     #
     # See `AsyncFutures::Executor.shutdown` for full documentation.
-    def shutdown(wait: true, cancel_futures: false, &block) # rubocop:disable Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
-      block&.call(self)
+    def shutdown(wait: true, cancel_futures: false) # rubocop:disable Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
+      yield(self) if block_given?
     ensure
       unless check_and_set_shutdown!
         futures_dup = synchronize { @futures.dup } if wait || cancel_futures
