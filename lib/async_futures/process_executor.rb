@@ -66,9 +66,7 @@ module AsyncFutures
   # with any other particular task;
   # that is dependent on how many workers and tasks there are
   # at any given point in time.
-  class ProcessExecutor # rubocop:disable Metrics/ClassLength
-    include Executor
-
+  class ProcessExecutor < Executor # rubocop:disable Metrics/ClassLength
     # Create a new `ProcessExecutor`.
     #
     # Uses a pool of up to `max_workers`
@@ -90,18 +88,15 @@ module AsyncFutures
     # on the PID of each spawned worker,
     # which will create an extra Ruby thread to reap the PID of each worker.
     # It defaults to `false`.
-    def initialize( # rubocop:disable Metrics/AbcSize
+    def initialize(
       max_workers: nil,
       worker_name_prefix: nil,
       daemonize_workers: false
     )
-      @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
-      @worker_name_prefix = worker_name_prefix
-      @daemonize_workers = daemonize_workers
+      super(worker_name_prefix: worker_name_prefix)
 
-      @mutex = Thread::Mutex.new
-      @condition = Thread::ConditionVariable.new
-      @tasks = Thread::Queue.new
+      @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
+      @daemonize_workers = daemonize_workers
 
       # All private variables after this point
       # require synchronization to safely interact with.
@@ -109,7 +104,6 @@ module AsyncFutures
 
       @pool = Set.new
       @pids = Set.new
-      @worker_count = 0
 
       @task_feeder = nil
       @result_feeder = nil
@@ -119,7 +113,8 @@ module AsyncFutures
       maybe_spawn_task_feeder
       maybe_spawn_result_feeder
 
-      at_exit { terminate_workers }
+      # at_exit { terminate_workers }
+      at_exit { shutdown(wait: false, cancel_futures: true) }
     end
 
     # Asynchronously submit a task for execution.
@@ -137,7 +132,7 @@ module AsyncFutures
         maybe_spawn_result_feeder
       rescue ClosedQueueError
         synchronize { @futures.delete(future.object_id) }
-        raise 'ProcessExecutor instance is shutdown'
+        refute_shutdown
       end
     end
 
@@ -161,7 +156,7 @@ module AsyncFutures
     def shutdown(wait: true, cancel_futures: false)
       yield(self) if block_given?
     ensure
-      unless check_and_set_shutdown!
+      at_first_shutdown do
         if cancel_futures
           while (task = @tasks.pop)
             future = task[0]
@@ -173,39 +168,39 @@ module AsyncFutures
       end
     end
 
-    # Send `SIGTERM` signal
-    # to all running workers.
-    #
-    # First shuts down the executor.
-    #
-    # No processes are signalled if `daemonize_workers` is `true`.
-    def terminate_workers
-      shutdown(wait: false, cancel_futures: true)
-      signal_workers('SIGTERM')
-    end
+    # # Send `SIGTERM` signal
+    # # to all running workers.
+    # #
+    # # First shuts down the executor.
+    # #
+    # # No processes are signalled if `daemonize_workers` is `true`.
+    # def terminate_workers
+    #   shutdown(wait: false, cancel_futures: true)
+    #   signal_workers('SIGTERM')
+    # end
 
-    # Send `SIGKILL` signal
-    # to all running workers.
-    #
-    # First shuts down the executor.
-    #
-    # No processes are signalled if `daemonize_workers` is `true`.
-    def kill_workers
-      shutdown(wait: false, cancel_futures: true)
-      signal_workers('SIGKILL')
-    end
+    # # Send `SIGKILL` signal
+    # # to all running workers.
+    # #
+    # # First shuts down the executor.
+    # #
+    # # No processes are signalled if `daemonize_workers` is `true`.
+    # def kill_workers
+    #   shutdown(wait: false, cancel_futures: true)
+    #   signal_workers('SIGKILL')
+    # end
 
     private
 
-    def signal_workers(signal)
-      synchronize { @pids.dup }.each do |pid|
-        Process.kill(signal, pid)
-      rescue Errno::ECHILD, Errno::ESRCH
-        # Do nothing
-      ensure
-        synchronize { @pids.delete(pid) }
-      end
-    end
+    # def signal_workers(signal)
+    #   synchronize { @pids.dup }.each do |pid|
+    #     Process.kill(signal, pid)
+    #   rescue Errno::ECHILD, Errno::ESRCH
+    #     # Do nothing
+    #   ensure
+    #     synchronize { @pids.delete(pid) }
+    #   end
+    # end
 
     # If the Executor is shutdown *AND* all remaining work as been completed.
     #
@@ -219,38 +214,6 @@ module AsyncFutures
     SMALLEST_TIMEOUT = 0.0.next_float
 
     private_constant :SMALLEST_TIMEOUT
-
-    def synchronize
-      @mutex.synchronize do
-        yield
-      ensure
-        @condition.broadcast
-      end
-    end
-
-    def wait_until
-      @condition.wait(@mutex) until yield
-    end
-
-    # Returns the current shutdown state,
-    # then sets internal shutdown state to `true`.
-    # This is all done atomically to avoid race conditions.
-    def check_and_set_shutdown!
-      synchronize do
-        return true if @tasks.closed?
-
-        @tasks.close
-        return false
-      end
-    end
-
-    def new_worker_name
-      if @worker_name_prefix
-        "#{@worker_name_prefix}_#{@worker_count += 1}"
-      else
-        "#{self.class.name}_#{object_id}_worker_#{@worker_count += 1}"
-      end
-    end
 
     def maybe_spawn_task_feeder
       synchronize { spawn_task_feeder unless @task_feeder }

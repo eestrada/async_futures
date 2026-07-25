@@ -22,9 +22,7 @@ module AsyncFutures
   # that is dependent on how many worker threads and tasks there are
   # at any given point in time
   # and whether the `strict_concurrency` argument is passed.
-  class ThreadExecutor # rubocop:disable Metrics/ClassLength
-    include Executor
-
+  class ThreadExecutor < Executor
     # Create a new `ThreadExecutor`.
     #
     # Uses a pool of up to `max_workers`
@@ -109,19 +107,17 @@ module AsyncFutures
       reap_after: nil,
       worker_name_prefix: nil
     )
+      super(worker_name_prefix: worker_name_prefix)
+
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
       @strict_concurrency = strict_concurrency
       @reap_after = reap_after
-      @worker_name_prefix = worker_name_prefix
-      @mutex = Thread::Mutex.new
-      @tasks = Thread::Queue.new
 
       # Set Hash value to `true` when a worker is running
       # and `false` otherwise.
       @pool = {}
-      @worker_count = 0
 
-      at_exit { shutdown(wait: false) }
+      at_exit { shutdown(wait: false, cancel_futures: true) }
     end
 
     # Asynchronously submit a task for execution.
@@ -136,8 +132,6 @@ module AsyncFutures
 
       Future.new.tap do |f|
         f.complete(*args, **kwargs, &block) unless queue_task(f, *args, **kwargs, &block)
-      rescue ClosedQueueError
-        raise 'ThreadExecutor instance is shutdown'
       end
     end
 
@@ -154,8 +148,6 @@ module AsyncFutures
 
       Future.new.tap do |f|
         raise NoConcurrencyError.new('Tasks exceed potential workers') unless queue_task(f, *args, **kwargs, &block)
-      rescue ClosedQueueError
-        raise 'ThreadExecutor instance is shutdown'
       end
     end
 
@@ -180,7 +172,7 @@ module AsyncFutures
     def shutdown(wait: true, cancel_futures: false)
       yield(self) if block_given?
     ensure
-      unless check_and_set_shutdown!
+      at_first_shutdown do
         if cancel_futures
           while (task = @tasks.pop)
             future = task[0]
@@ -199,22 +191,6 @@ module AsyncFutures
 
     private
 
-    def synchronize(&)
-      @mutex.synchronize(&)
-    end
-
-    # Returns the current shutdown state,
-    # then sets internal shutdown state to `true`.
-    # This is all done atomically to avoid race conditions.
-    def check_and_set_shutdown!
-      synchronize do
-        return true if @tasks.closed?
-
-        @tasks.close
-        return false
-      end
-    end
-
     # Attempt to queue task.
     # Return `true` if successful, `false` otherwise.
     #
@@ -228,7 +204,7 @@ module AsyncFutures
     # based on whether there are any potentially available workers.
     #
     # May spawn a new worker, if the task was queued.
-    def queue_task(future, *args, **kwargs, &block)
+    def queue_task(future, *args, **kwargs, &block) # rubocop:disable Metrics/AbcSize,Metrics/PerceivedComplexity
       queued = if @strict_concurrency
                  synchronize do
                    potential_workers = (@max_workers - @pool.size) + @pool.values.count(&:!)
@@ -245,7 +221,9 @@ module AsyncFutures
                  @tasks.push([future, block, args, kwargs])
                  true
                end
-
+    rescue ClosedQueueError
+      refute_shutdown
+    else
       queued.tap { maybe_spawn_worker if queued }
     end
 
@@ -255,20 +233,10 @@ module AsyncFutures
       spawn_worker if !@tasks.empty? && synchronize { @pool.size } < @max_workers
     end
 
-    def new_worker_name
-      synchronize do
-        if @worker_name_prefix
-          "#{@worker_name_prefix}_#{@worker_count += 1}"
-        else
-          "#{self.class.name}_#{object_id}_worker_#{@worker_count += 1}"
-        end
-      end
-    end
-
     # Always spawn a worker
     def spawn_worker # rubocop:disable Metrics/AbcSize
       thread = Thread.new do
-        AsyncFutures.worker_name = new_worker_name
+        AsyncFutures.worker_name = sync_new_worker_name
         while (task = @tasks.pop(timeout: @reap_after))
           synchronize { @pool[Thread.current] = true }
 

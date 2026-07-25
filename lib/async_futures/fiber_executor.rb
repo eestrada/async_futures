@@ -44,9 +44,7 @@ module AsyncFutures
   # back to the `Fiber::Scheduler`
   # and whether the `Fiber::Scheduler` properly implements
   # `Fiber` switching for those operations.
-  class FiberExecutor
-    include Executor
-
+  class FiberExecutor < Executor
     # Create a new `FiberExecutor`.
     #
     # Spawns fibers via `Fiber.schedule`.
@@ -71,15 +69,11 @@ module AsyncFutures
     def initialize(treat_as_concurrent: false, worker_name_prefix: nil)
       raise Error.new('No Fiber.scheduler set') unless Fiber.scheduler
 
-      super()
+      super(worker_name_prefix: worker_name_prefix)
       @treat_as_concurrent = treat_as_concurrent
-      @worker_name_prefix = worker_name_prefix
-      @worker_count = 0
-      @is_shutdown = false
       @futures = Set.new
-      @mutex = Thread::Mutex.new
 
-      at_exit { shutdown(wait: false) }
+      at_exit { shutdown(wait: false, cancel_futures: true) }
     end
 
     # Asynchronously submit a task for execution.
@@ -90,7 +84,7 @@ module AsyncFutures
 
       Future.new.tap do |future|
         synchronize do
-          raise 'FiberExecutor instance is shutdown' if @is_shutdown
+          refute_shutdown
 
           # Need to set this immediately to ensure DeadlockError is raised appropriately.
           future.thread = Thread.current
@@ -99,7 +93,7 @@ module AsyncFutures
         end
 
         Fiber.schedule do
-          AsyncFutures.worker_name = new_worker_name
+          AsyncFutures.worker_name = sync_new_worker_name
           future.complete(*args, **kwargs, &block)
         end
       end
@@ -121,41 +115,13 @@ module AsyncFutures
     def shutdown(wait: true, cancel_futures: false) # rubocop:disable Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
       yield(self) if block_given?
     ensure
-      unless check_and_set_shutdown!
+      at_first_shutdown do
         futures_dup = synchronize { @futures.dup } if wait || cancel_futures
         futures_dup.reject!(&:cancel) if cancel_futures
 
         # This will deadlock outside a FiberScheduler,
         futures_dup.reject!(&:join) if wait
         synchronize { @futures.replace(@futures & futures_dup) } if wait || cancel_futures
-      end
-    end
-
-    private
-
-    # Returns the current shutdown state,
-    # then sets internal shutdown state to `true`.
-    # This is all done atomically to avoid race conditions.
-    def check_and_set_shutdown!
-      synchronize do
-        return true if @is_shutdown
-
-        @is_shutdown = true
-        return false
-      end
-    end
-
-    def synchronize(&)
-      @mutex.synchronize(&)
-    end
-
-    def new_worker_name
-      synchronize do
-        if @worker_name_prefix
-          "#{@worker_name_prefix}_#{@worker_count += 1}"
-        else
-          "#{self.class.name}_#{object_id}_worker_#{@worker_count += 1}"
-        end
       end
     end
   end

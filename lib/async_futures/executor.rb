@@ -18,14 +18,13 @@ module AsyncFutures # rubocop:disable Style/Documentation
     end
   end
 
-  # `Executor` mixin module.
+  # `Executor` base class.
   # Has a simple implementation
   # that just runs submitted blocks immediately
   # and returns a completed `Future`.
-  # Can be used standalone as a stateless `Executor`
-  # that runs submitted blocks immediately.
   #
-  # Classes using this mixin should override the `submit` method.
+  # Classes inheriting this class
+  # should at least override the `submit` method.
   #
   # `shutdown` should be overridden if there is cleanup to be performed.
   #
@@ -37,16 +36,26 @@ module AsyncFutures # rubocop:disable Style/Documentation
   # The `map` method should *never* be overridden.
   # This is already logically correct
   # and should work with any `Executor` implementation.
-  module Executor
+  class Executor
+    # initialize private variables that all derived classes need.
+    def initialize(worker_name_prefix: nil)
+      @worker_name_prefix = worker_name_prefix
+      @mutex = Thread::Mutex.new
+      @condition = Thread::ConditionVariable.new
+      @tasks = Thread::Queue.new
+      @worker_count = 0
+    end
+
     # Schedules the block
     # to be executed as `block.call(*args, **kwargs)`
     # and returns a `Future` object representing the execution of the block.
     #
-    # Some Executor implementations may,
+    # Some `Executor` implementations may,
     # under some or all circumstances,
     # run the given block immediately and synchronously
     # and return an already completed `Future` object.
     def submit(...)
+      refute_shutdown
       Future.new.tap { |future| future.complete(...) }
     end
 
@@ -217,20 +226,54 @@ module AsyncFutures # rubocop:disable Style/Documentation
     # or `nil` if no block is given.
     def shutdown(wait: true, cancel_futures: false) # rubocop:disable Lint/UnusedMethodArgument
       yield(self) if block_given?
-    ensure # rubocop:disable Lint/EmptyEnsure
-      # Cleanup logic goes here.
-      #
-      # The mixin has no state,
-      # so it has nothing to cleanup.
-      #
-      # Also, this is the only implementation that will *not* raise
-      # an exception when new tasks are submitted after shutdown,
-      # precisely because it has no state
-      # to even keep track of whether shutdown has previously been called or not.
+    ensure
+      at_first_shutdown do
+        # do nothing for base Executor
+        # even on first shutdown.
+      end
     end
 
-    module_function :submit, :submit_concurrent, :support_concurrency?, :map, :shutdown
+    private
 
-    public :submit, :submit_concurrent, :support_concurrency?, :map, :shutdown
+    def synchronize
+      @mutex.synchronize do
+        yield
+      ensure
+        @condition.broadcast
+      end
+    end
+
+    def wait_until
+      @condition.wait(@mutex) until yield
+    end
+
+    # Shutdown the Executor if it hasn't already been shutdown.
+    # Also run the given block,
+    # but only at the first shutdown attempt.
+    def at_first_shutdown
+      synchronize do
+        return if @tasks.closed?
+
+        @tasks.close
+      end
+
+      yield
+    end
+
+    def refute_shutdown
+      raise "#{self.class.name} instance is shutdown" if @tasks.closed?
+    end
+
+    def new_worker_name
+      if @worker_name_prefix
+        "#{@worker_name_prefix}_#{@worker_count += 1}"
+      else
+        "#{self.class.name}_#{object_id}_worker_#{@worker_count += 1}"
+      end
+    end
+
+    def sync_new_worker_name
+      synchronize { new_worker_name }
+    end
   end
 end

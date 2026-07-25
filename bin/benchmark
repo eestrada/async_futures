@@ -40,7 +40,7 @@ m_tempfile_write = 10_024
 gvl_freed_proc = proc { |ii, nn| nn.times { |j| Digest::SHA2.hexdigest((ii + j).to_s) } }
 
 # These stay outside the block to stay "warm".
-bexec = AsyncFutures::Executor
+bexec = AsyncFutures::Executor.new
 texec = AsyncFutures::ThreadExecutor.new(max_workers: 4)
 rexec = AsyncFutures::RactorExecutor.new(max_workers: 4)
 

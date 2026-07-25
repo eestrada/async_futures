@@ -71,7 +71,7 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
       # <RuntimeError: ThreadExecutor instance is shutdown>
       assert_instance_of RuntimeError, future1.exception
-      assert_match(/^ThreadExecutor instance is shutdown$/, future1.exception.message)
+      assert_match(/ThreadExecutor instance is shutdown$/, future1.exception.message)
     end
   end
 
@@ -118,7 +118,7 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
       exc = future1.result
 
-      assert_match(/^ThreadExecutor instance is shutdown$/, exc.message)
+      assert_match(/ThreadExecutor instance is shutdown$/, exc.message)
     end
   end
 
@@ -191,7 +191,7 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
       exc = future1.result
 
-      assert_match(/^ThreadExecutor instance is shutdown$/, exc.message)
+      assert_match(/ThreadExecutor instance is shutdown$/, exc.message)
     end
   end
 
@@ -216,7 +216,7 @@ class TestThreadExecutor < Minitest::Test # rubocop:disable Metrics/ClassLength
 
       exc = future1.result
 
-      assert_match(/^ThreadExecutor instance is shutdown$/, exc.message)
+      assert_match(/ThreadExecutor instance is shutdown$/, exc.message)
     end
   end
 

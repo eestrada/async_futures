@@ -28,9 +28,7 @@ module AsyncFutures
   # with any other particular task;
   # that is dependent on how many worker threads and tasks there are
   # at any given point in time.
-  class RactorExecutor # rubocop:disable Metrics/ClassLength
-    include Executor
-
+  class RactorExecutor < Executor # rubocop:disable Metrics/ClassLength
     # Create a new `RactorExecutor`.
     #
     # Uses a pool of up to `max_workers`
@@ -71,12 +69,13 @@ module AsyncFutures
       make_args_shareable: false,
       copy_args: false
     )
+      super(worker_name_prefix: worker_name_prefix)
+
       if copy_args && !make_args_shareable
         raise ArgumentError.new('`copy_args` cannot be true unless `make_args_shareable` is also true')
       end
 
       @max_workers = (max_workers || [32, Etc.nprocessors + 4].min).to_i
-      @worker_name_prefix = worker_name_prefix
 
       # This value is passed into worker Ractors.
       # If the caller passed something not shareable,
@@ -89,9 +88,6 @@ module AsyncFutures
       @move_args = move_args
       @make_args_shareable = make_args_shareable
       @copy_args = copy_args
-      @mutex = Thread::Mutex.new
-      @condition = Thread::ConditionVariable.new
-      @tasks = Thread::Queue.new
       @worker_tasks_ports = Thread::Queue.new
 
       # All private variables after this point
@@ -101,7 +97,6 @@ module AsyncFutures
       @futures = {}
 
       @pool = Set.new
-      @worker_count = 0
 
       @task_feeder = nil
       @result_feeder = nil
@@ -111,7 +106,7 @@ module AsyncFutures
       maybe_spawn_task_feeder
       maybe_spawn_result_feeder
 
-      at_exit { shutdown(wait: false) }
+      at_exit { shutdown(wait: false, cancel_futures: true) }
     end
 
     # Asynchronously submit a task for execution.
@@ -137,7 +132,7 @@ module AsyncFutures
         maybe_spawn_task_feeder
         maybe_spawn_result_feeder
       rescue ClosedQueueError
-        raise 'RactorExecutor instance is shutdown'
+        refute_shutdown
       end
     end
 
@@ -157,7 +152,7 @@ module AsyncFutures
     def shutdown(wait: true, cancel_futures: false)
       yield(self) if block_given?
     ensure
-      unless check_and_set_shutdown!
+      at_first_shutdown do
         if cancel_futures
           while (task = @tasks.pop)
             future = task[0]
@@ -170,38 +165,6 @@ module AsyncFutures
     end
 
     private
-
-    def synchronize
-      @mutex.synchronize do
-        yield
-      ensure
-        @condition.broadcast
-      end
-    end
-
-    def wait_until
-      @condition.wait(@mutex) until yield
-    end
-
-    # Returns the current shutdown state,
-    # then sets internal shutdown state to `true`.
-    # This is all done atomically to avoid race conditions.
-    def check_and_set_shutdown!
-      synchronize do
-        return true if @tasks.closed?
-
-        @tasks.close
-        return false
-      end
-    end
-
-    def new_worker_name
-      if @worker_name_prefix
-        "#{@worker_name_prefix}_#{@worker_count += 1}"
-      else
-        "#{self.class.name}_#{object_id}_worker_#{@worker_count += 1}"
-      end
-    end
 
     def maybe_spawn_task_feeder
       synchronize { spawn_task_feeder unless @task_feeder }
@@ -255,9 +218,9 @@ module AsyncFutures
 
         loop do
           break_loop, results_ports_keys = synchronize do
-            wait_until { !@results_ports.empty? || (@pool.empty? && @tasks.closed? && @tasks.empty?) }
+            wait_until { !@results_ports.empty? || (@tasks.closed? && @tasks.empty? && @pool.empty?) }
 
-            [@results_ports.empty? && @pool.empty? && @tasks.closed? && @tasks.empty?, @results_ports.keys]
+            [@tasks.closed? && @tasks.empty? && @pool.empty? && @results_ports.empty?, @results_ports.keys]
           end
 
           break if break_loop
@@ -309,7 +272,7 @@ module AsyncFutures
       worker = Ractor.new(
         new_results_port,
         @move_result,
-        new_worker_name
+        sync_new_worker_name
       ) do |results_port, move_result, worker_name|
         AsyncFutures.worker_name = worker_name
         tasks_port = Ractor::Port.new

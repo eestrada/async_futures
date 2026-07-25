@@ -6,7 +6,7 @@ require 'async_futures/executor'
 
 class TestExecutor < Minitest::Test
   def setup
-    @executor = AsyncFutures::Executor
+    @executor = AsyncFutures::Executor.new
   end
 
   def test_submit_raises_argument_error_without_block
@@ -131,5 +131,17 @@ class TestExecutor < Minitest::Test
 
   def test_shutdown_with_block
     refute_nil(@executor.shutdown { true })
+  end
+
+  def test_submit_after_shutdown
+    future1 = @executor.submit { 1 }
+
+    assert_equal 1, future1.result
+
+    @executor.shutdown
+
+    exc = assert_raises(RuntimeError) { @executor.submit { 2 } }
+
+    assert_instance_of RuntimeError, exc
   end
 end
