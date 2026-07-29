@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'executor'
+require_relative 'synchronized_delegator'
 
 require 'etc'
 require 'set' # rubocop:disable Lint/RedundantRequireStatement
@@ -115,7 +116,7 @@ module AsyncFutures
 
       # Set Hash value to `true` when a worker is running
       # and `false` otherwise.
-      @pool = {}
+      @pool = SynchronizedDelegator.new({})
 
       at_exit { shutdown(wait: false, cancel_futures: true) }
     end
@@ -153,7 +154,7 @@ module AsyncFutures
 
     # Return the current size of the worker pool
     def pool_size
-      synchronize { @pool.size }
+      @pool.size
     end
 
     # :nocov:
@@ -181,9 +182,9 @@ module AsyncFutures
         end
 
         if wait
-          synchronize { @pool.dup }.each do |thread|
+          @pool.keys.each do |thread| # rubocop:disable Style/HashEachMethods
             thread.join
-            synchronize { @pool.delete(thread) }
+            @pool.delete(thread)
           end
         end
       end
@@ -204,18 +205,16 @@ module AsyncFutures
     # based on whether there are any potentially available workers.
     #
     # May spawn a new worker, if the task was queued.
-    def queue_task(future, *args, **kwargs, &block) # rubocop:disable Metrics/AbcSize,Metrics/PerceivedComplexity
+    def queue_task(future, *args, **kwargs, &block) # rubocop:disable Metrics/PerceivedComplexity
       queued = if @strict_concurrency
-                 synchronize do
-                   potential_workers = (@max_workers - @pool.size) + @pool.values.count(&:!)
-                   if (@tasks.size + 1) <= potential_workers
-                     @tasks.push([future, block, args, kwargs])
-                     true
-                   else
-                     raise ClosedQueueError if @tasks.closed?
+                 potential_workers = (@max_workers - @pool.size) + @pool.values.count(&:!)
+                 if (@tasks.size + 1) <= potential_workers
+                   @tasks.push([future, block, args, kwargs])
+                   true
+                 else
+                   raise ClosedQueueError if @tasks.closed?
 
-                     false
-                   end
+                   false
                  end
                else
                  @tasks.push([future, block, args, kwargs])
@@ -229,26 +228,25 @@ module AsyncFutures
 
     # Only spawn a worker if one is needed.
     def maybe_spawn_worker
-      # synchronize when interacting directly with @pool
-      spawn_worker if !@tasks.empty? && synchronize { @pool.size } < @max_workers
+      spawn_worker if !@tasks.empty? && @pool.size < @max_workers
     end
 
     # Always spawn a worker
-    def spawn_worker # rubocop:disable Metrics/AbcSize
-      thread = Thread.new do
-        AsyncFutures.worker_name = sync_new_worker_name
+    def spawn_worker
+      thread = Thread.new(new_worker_name) do |worker_name|
+        AsyncFutures.worker_name = worker_name
         while (task = @tasks.pop(timeout: @reap_after))
-          synchronize { @pool[Thread.current] = true }
+          @pool[Thread.current] = true
 
           tfuture, tblock, targs, tkwargs = task
           tfuture.complete(*targs, **tkwargs, &tblock)
 
-          synchronize { @pool[Thread.current] = false }
+          @pool[Thread.current] = false
         end
       ensure
-        synchronize { @pool.delete Thread.current }
+        @pool.delete(Thread.current)
       end
-      synchronize { @pool[thread] ||= false }
+      @pool[thread] ||= false
     end
   end
 end

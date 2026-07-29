@@ -2,6 +2,7 @@
 
 require_relative 'error'
 require_relative 'executor'
+require_relative 'synchronized_delegator'
 
 require 'set' # rubocop:disable Lint/RedundantRequireStatement
 
@@ -71,7 +72,7 @@ module AsyncFutures
 
       super(worker_name_prefix: worker_name_prefix)
       @treat_as_concurrent = treat_as_concurrent
-      @futures = Set.new
+      @futures = SynchronizedDelegator.new(Set.new)
 
       at_exit { shutdown(wait: false, cancel_futures: true) }
     end
@@ -88,12 +89,12 @@ module AsyncFutures
 
           # Need to set this immediately to ensure DeadlockError is raised appropriately.
           future.thread = Thread.current
-          @futures.add future
-          future.add_done_callback { |f| synchronize { @futures.delete f } }
+          @futures.add(future)
+          future.add_done_callback { |f| @futures.delete(f) }
         end
 
         Fiber.schedule do
-          AsyncFutures.worker_name = sync_new_worker_name
+          AsyncFutures.worker_name = new_worker_name
           future.complete(*args, **kwargs, &block)
         end
       end
@@ -116,12 +117,12 @@ module AsyncFutures
       yield(self) if block_given?
     ensure
       at_first_shutdown do
-        futures_dup = synchronize { @futures.dup } if wait || cancel_futures
+        futures_dup = @futures.to_set.dup if wait || cancel_futures
         futures_dup.reject!(&:cancel) if cancel_futures
 
         # This will deadlock outside a FiberScheduler,
         futures_dup.reject!(&:join) if wait
-        synchronize { @futures.replace(@futures & futures_dup) } if wait || cancel_futures
+        @futures.replace(@futures & futures_dup) if wait || cancel_futures
       end
     end
   end

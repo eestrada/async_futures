@@ -272,7 +272,7 @@ module AsyncFutures
       worker = Ractor.new(
         new_results_port,
         @move_result,
-        sync_new_worker_name
+        new_worker_name
       ) do |results_port, move_result, worker_name|
         AsyncFutures.worker_name = worker_name
         tasks_port = Ractor::Port.new

@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
+require_relative 'counter'
 require_relative 'error'
 require_relative 'future'
+require_relative 'synchronized_delegator'
 
 require 'timeout'
 
@@ -43,7 +45,7 @@ module AsyncFutures # rubocop:disable Style/Documentation
       @mutex = Thread::Mutex.new
       @condition = Thread::ConditionVariable.new
       @tasks = Thread::Queue.new
-      @worker_count = 0
+      @worker_count = SynchronizedDelegator.new(Counter.new(0))
     end
 
     # Schedules the block
@@ -266,14 +268,10 @@ module AsyncFutures # rubocop:disable Style/Documentation
 
     def new_worker_name
       if @worker_name_prefix
-        "#{@worker_name_prefix}_#{@worker_count += 1}"
+        "#{@worker_name_prefix}_#{@worker_count.increment}"
       else
-        "#{self.class.name}_#{object_id}_worker_#{@worker_count += 1}"
+        "#{self.class.name}_#{object_id}_worker_#{@worker_count.increment}"
       end
-    end
-
-    def sync_new_worker_name
-      synchronize { new_worker_name }
     end
   end
 end
