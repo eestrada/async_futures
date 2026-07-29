@@ -117,12 +117,12 @@ module AsyncFutures
       yield(self) if block_given?
     ensure
       at_first_shutdown do
-        futures_dup = @futures.to_set.dup if wait || cancel_futures
+        futures_dup = @futures.to_a.to_set if wait || cancel_futures
         futures_dup.reject!(&:cancel) if cancel_futures
 
         # This will deadlock outside a FiberScheduler,
         futures_dup.reject!(&:join) if wait
-        @futures.replace(@futures & futures_dup) if wait || cancel_futures
+        @futures.replace(@futures.to_a.to_set & futures_dup) if wait || cancel_futures
       end
     end
   end

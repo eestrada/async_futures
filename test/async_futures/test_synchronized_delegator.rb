@@ -2,6 +2,7 @@
 
 require_relative 'minitest_helper'
 
+require 'set' # rubocop:disable Lint/RedundantRequireStatement
 require 'async_futures/synchronized_delegator'
 
 class TestSynchronizedDelegator < Minitest::Test
@@ -27,5 +28,26 @@ class TestSynchronizedDelegator < Minitest::Test
 
     # not defined or delegated
     refute_respond_to @delegator, :blah_blah
+  end
+
+  def test_blocks
+    @delegator[:one] = true
+    @delegator[:two] = false
+
+    assert_equal 2, @delegator.size
+
+    @delegator.delete_if { |_key, value| !value }
+
+    assert_equal 1, @delegator.size
+
+    assert_includes @delegator, :one
+  end
+
+  def test_set_dup
+    delegated_set = Set.new
+    delegator = AsyncFutures::SynchronizedDelegator.new(delegated_set)
+
+    assert_same delegated_set, delegator.to_set
+    refute_same delegated_set, delegator.dup
   end
 end
