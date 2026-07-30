@@ -174,9 +174,9 @@ module AsyncFutures
       yield(self) if block_given?
     ensure
       at_first_shutdown do
-        tasks_enum.each { |ftr, *_| ftr.cancel } if cancel_futures # rubocop:disable Style/HashEachMethods
+        tasks_enum.each { |ftr, *_| ftr.cancel } if cancel_futures
 
-        @pool.keys.each(&:join) if wait # rubocop:disable Style/HashEachMethods
+        @pool.dup.to_h.each_key(&:join) if wait
       end
     end
 

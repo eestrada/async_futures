@@ -6,6 +6,9 @@ AllCops:
   TargetRubyVersion: 3.3
   NewCops: enable
 
+Style/HashEachMethods:
+  Enabled: false
+
 Style/SymbolArray:
   Enabled: false
 
