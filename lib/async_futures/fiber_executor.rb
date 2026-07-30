@@ -89,8 +89,8 @@ module AsyncFutures
 
           # Need to set this immediately to ensure DeadlockError is raised appropriately.
           future.thread = Thread.current
-          @futures.add(future)
           future.add_done_callback { |f| @futures.delete(f) }
+          @futures.add(future)
         end
 
         Fiber.schedule do
@@ -113,16 +113,17 @@ module AsyncFutures
     # Shutdown `FiberExecutor` instance.
     #
     # See `AsyncFutures::Executor.shutdown` for full documentation.
-    def shutdown(wait: true, cancel_futures: false) # rubocop:disable Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity
+    def shutdown(wait: true, cancel_futures: false) # rubocop:disable Metrics/CyclomaticComplexity
       yield(self) if block_given?
     ensure
       at_first_shutdown do
-        futures_dup = @futures.to_a.to_set if wait || cancel_futures
-        futures_dup.reject!(&:cancel) if cancel_futures
+        if wait || cancel_futures
+          futures_dup = @futures.dup.to_set
+          futures_dup.reject!(&:cancel) if cancel_futures
 
-        # This will deadlock outside a FiberScheduler,
-        futures_dup.reject!(&:join) if wait
-        @futures.replace(@futures.to_a.to_set & futures_dup) if wait || cancel_futures
+          # This will deadlock outside a FiberScheduler,
+          futures_dup.reject!(&:join) if wait
+        end
       end
     end
   end

@@ -50,11 +50,13 @@ class TestSynchronizedDelegator < Minitest::Test
     assert_same delegated_set, delegator.to_set
     refute_same delegated_set, delegator.dup
 
-    # It does dup on the delegator
+    # It does dup on the delegator,
+    # so a Delegator is returned.
     refute_kind_of Set, delegator.dup
     assert_kind_of AsyncFutures::SynchronizedDelegator, delegator.dup
 
-    # But it does a deep dup
+    # But it does a deep dup,
+    # so the internal set is also duped.
     refute_same delegated_set, delegator.dup.to_set
   end
 end
