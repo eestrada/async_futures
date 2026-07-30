@@ -174,19 +174,9 @@ module AsyncFutures
       yield(self) if block_given?
     ensure
       at_first_shutdown do
-        if cancel_futures
-          while (task = @tasks.pop)
-            future = task[0]
-            future.cancel
-          end
-        end
+        tasks_enum.each { |ftr, *_| ftr.cancel } if cancel_futures # rubocop:disable Style/HashEachMethods
 
-        if wait
-          @pool.keys.each do |thread| # rubocop:disable Style/HashEachMethods
-            thread.join
-            @pool.delete(thread)
-          end
-        end
+        @pool.keys.each(&:join) if wait # rubocop:disable Style/HashEachMethods
       end
     end
 

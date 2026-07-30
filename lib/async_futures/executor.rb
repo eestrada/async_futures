@@ -249,6 +249,21 @@ module AsyncFutures # rubocop:disable Style/Documentation
       @condition.wait(@mutex) until yield
     end
 
+    # A simple Enumerator that iterates until the @tasks queue is closed and empty.
+    # Because it is a queue, it can block
+    # so it should only be used under circumstances
+    # where the caller is certain the queue will eventually close and drain.
+    #
+    # Also, the Enumerator can't be shared between threads like the queue itself
+    # can be.
+    def tasks_enum(timeout: nil)
+      Enumerator.new do |yielder|
+        while (task = @tasks.pop(timeout: timeout))
+          yielder << task
+        end
+      end
+    end
+
     # Shutdown the Executor if it hasn't already been shutdown.
     # Also run the given block,
     # but only at the first shutdown attempt.
