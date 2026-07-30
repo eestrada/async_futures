@@ -34,5 +34,28 @@ module AsyncFutures
       # keep respond_to? consistent
       super
     end
+
+    # :nocov:
+
+    # TODO: determine if the definitions below are needed.
+    # They might not be needed,
+    # based on how SimpleDelegator and Delegator work for dupes and clones,
+    # but defining them below ensures they are properly synchronized.
+
+    # A synchronized implementation of `clone`.
+    def clone(...)
+      @mutex.synchronize do
+        super
+      end
+    end
+
+    # A synchronized implementation of `dup`.
+    def dup
+      @mutex.synchronize do
+        super
+      end
+    end
+
+    # :nocov:
   end
 end
