@@ -19,8 +19,8 @@ module AsyncFutures
   # where the object will not be accessed concurrently.
   class SynchronizedDelegator < SimpleDelegator
     def initialize(obj)
-      super
       @mutex = Thread::Mutex.new
+      super
     end
 
     # Like regular `method_missing`, but all calls are synchronized.
