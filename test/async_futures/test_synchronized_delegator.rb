@@ -97,18 +97,43 @@ class TestSynchronizedDelegator < Minitest::Test
     refute_same delegated_set, delegator.clone.to_set
   end
 
-  def test_clone_dup_mutex # rubocop:disable Metrics/AbcSize
+  def test_clone_dup_freeze_mutex # rubocop:disable Metrics/AbcSize
     delegated_set = Set.new
     d1 = AsyncFutures::SynchronizedDelegator.new(delegated_set)
 
     d2 = d1.dup
     d3 = d1.clone
-    d4 = d1.clone(freeze: true)
+    d4 = d1.clone.freeze.clone
+    d5 = d1.clone(freeze: true)
+    d6 = d5.clone
+    d7 = d6.dup
 
-    refute_same(d2.instance_eval { @mutex }, d1.instance_eval { @mutex })
-    refute_same(d3.instance_eval { @mutex }, d1.instance_eval { @mutex })
-    refute_same(d4.instance_eval { @mutex }, d1.instance_eval { @mutex })
-    refute(d3.instance_eval { @mutex.frozen? })
-    refute(d4.instance_eval { @mutex.frozen? })
+    refute_same d2.instance_variable_get(:@mutex), d1.instance_variable_get(:@mutex)
+    refute_same d3.instance_variable_get(:@mutex), d1.instance_variable_get(:@mutex)
+    refute_same d4.instance_variable_get(:@mutex), d1.instance_variable_get(:@mutex)
+    refute_same d5.instance_variable_get(:@mutex), d1.instance_variable_get(:@mutex)
+    refute_same d6.instance_variable_get(:@mutex), d5.instance_variable_get(:@mutex)
+    refute_same d7.instance_variable_get(:@mutex), d6.instance_variable_get(:@mutex)
+
+    refute_predicate d1.__getobj__, :frozen?
+    refute_predicate d1.instance_variable_get(:@mutex), :frozen?
+
+    refute_predicate d2.__getobj__, :frozen?
+    refute_predicate d2.instance_variable_get(:@mutex), :frozen?
+
+    refute_predicate d3.__getobj__, :frozen?
+    refute_predicate d3.instance_variable_get(:@mutex), :frozen?
+
+    assert_predicate d4.__getobj__, :frozen?
+    assert_predicate d4.instance_variable_get(:@mutex), :frozen?
+
+    assert_predicate d5.__getobj__, :frozen?
+    assert_predicate d5.instance_variable_get(:@mutex), :frozen?
+
+    assert_predicate d6.__getobj__, :frozen?
+    assert_predicate d6.instance_variable_get(:@mutex), :frozen?
+
+    refute_predicate d7.__getobj__, :frozen?
+    refute_predicate d7.instance_variable_get(:@mutex), :frozen?
   end
 end

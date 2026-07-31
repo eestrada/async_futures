@@ -6,16 +6,17 @@ module AsyncFutures
   # A Delegator that synchronizes all calls for a delegated object.
   #
   # This does not guarantee concurrency safety under all circumstances,
-  # For example, enumeration/iteration may not be totally safe.
-  # But it does make it easier to be concurrency safe.
-  #
+  # but it does make it easier to be safe.
   # For example,
-  # you can do a concurrency safe copy of the object,
-  # then enumerate over it.
+  # any method that returns `self` is potentially unsafe if chained afterward
+  # (because the chained operations can happen outside the synchronized mutex,
+  # and thus are not safe for concurrency).
   #
   # The only argument to `new` is  the object to be wrapped.
-  # Obviously, it shouldn't be directly accessed
-  # outside the delegator after initial creation.
+  # For concurrency safety, it should no longer be directly accessed
+  # outside the delegator
+  # unless you are know you are in a situation
+  # where the object will not be accessed concurrently.
   class SynchronizedDelegator < SimpleDelegator
     def initialize(obj)
       super
@@ -40,7 +41,9 @@ module AsyncFutures
     # Uses a custom implementation of `initialize_clone`
     # that creates and assigns a new mutex
     # to the clone.
-    def clone(...)
+    # The internal mutex will also be properly frozen
+    # if the original delegator is frozen.
+    def clone(freeze: nil)
       @mutex.synchronize do
         super
       end
@@ -57,15 +60,25 @@ module AsyncFutures
       end
     end
 
+    # A synchronized implementation of `freeze`.
+    #
+    # Also freezes private mutex.
+    def freeze
+      @mutex.synchronize do
+        @mutex.freeze
+        super
+      end
+    end
+
     private
 
     def initialize_dup(other) # :nodoc:
-      @mutex = other.instance_eval { @mutex.dup }
+      @mutex = other.instance_variable_get(:@mutex).dup
       super
     end
 
     def initialize_clone(other, freeze: nil) # :nodoc:
-      @mutex = other.instance_eval { @mutex.clone }
+      @mutex = other.instance_variable_get(:@mutex).clone(freeze: freeze)
       super
     end
   end
