@@ -55,8 +55,60 @@ class TestSynchronizedDelegator < Minitest::Test
     refute_kind_of Set, delegator.dup
     assert_kind_of AsyncFutures::SynchronizedDelegator, delegator.dup
 
-    # But it does a deep dup,
+    # But it does dup the internal object,
     # so the internal set is also duped.
-    refute_same delegated_set, delegator.dup.to_set
+    refute_same delegated_set, delegator.clone.to_set
+  end
+
+  def test_set_frozen_clone
+    delegated_set = Set.new
+    delegator = AsyncFutures::SynchronizedDelegator.new(delegated_set)
+
+    assert_same delegated_set, delegator.to_set
+    refute_same delegated_set, delegator.clone(freeze: true)
+
+    # It does dup on the delegator,
+    # so a Delegator is returned.
+    refute_kind_of Set, delegator.clone(freeze: true)
+    assert_kind_of AsyncFutures::SynchronizedDelegator, delegator.clone(freeze: true)
+
+    # But it does clone the internal object,
+    # so the internal set is also cloned.
+    refute_same delegated_set, delegator.clone(freeze: true).to_set
+
+    refute_predicate delegator, :frozen?
+    assert_predicate delegator.clone(freeze: true), :frozen?
+  end
+
+  def test_set_clone
+    delegated_set = Set.new
+    delegator = AsyncFutures::SynchronizedDelegator.new(delegated_set)
+
+    assert_same delegated_set, delegator.to_set
+    refute_same delegated_set, delegator.clone
+
+    # It does dup on the delegator,
+    # so a Delegator is returned.
+    refute_kind_of Set, delegator.clone
+    assert_kind_of AsyncFutures::SynchronizedDelegator, delegator.clone
+
+    # But it does clone the internal object,
+    # so the internal set is also cloned.
+    refute_same delegated_set, delegator.clone.to_set
+  end
+
+  def test_clone_dup_mutex # rubocop:disable Metrics/AbcSize
+    delegated_set = Set.new
+    d1 = AsyncFutures::SynchronizedDelegator.new(delegated_set)
+
+    d2 = d1.dup
+    d3 = d1.clone
+    d4 = d1.clone(freeze: true)
+
+    refute_same(d2.instance_eval { @mutex }, d1.instance_eval { @mutex })
+    refute_same(d3.instance_eval { @mutex }, d1.instance_eval { @mutex })
+    refute_same(d4.instance_eval { @mutex }, d1.instance_eval { @mutex })
+    refute(d3.instance_eval { @mutex.frozen? })
+    refute(d4.instance_eval { @mutex.frozen? })
   end
 end

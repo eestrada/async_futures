@@ -19,7 +19,7 @@ module AsyncFutures
   class SynchronizedDelegator < SimpleDelegator
     def initialize(obj)
       super
-      @mutex = Mutex.new
+      @mutex = Thread::Mutex.new
     end
 
     # Like regular `method_missing`, but all calls are synchronized.
@@ -35,14 +35,11 @@ module AsyncFutures
       super
     end
 
-    # :nocov:
-
-    # TODO: determine if the definitions below are needed.
-    # They might not be needed,
-    # based on how SimpleDelegator and Delegator work for dupes and clones,
-    # but defining them below ensures they are properly synchronized.
-
     # A synchronized implementation of `clone`.
+    #
+    # Uses a custom implementation of `initialize_clone`
+    # that creates and assigns a new mutex
+    # to the clone.
     def clone(...)
       @mutex.synchronize do
         super
@@ -50,12 +47,26 @@ module AsyncFutures
     end
 
     # A synchronized implementation of `dup`.
+    #
+    # Uses a custom implementation of `initialize_dup`
+    # that creates and assigns a new mutex
+    # to the duplicate.
     def dup
       @mutex.synchronize do
         super
       end
     end
 
-    # :nocov:
+    private
+
+    def initialize_dup(other) # :nodoc:
+      @mutex = other.instance_eval { @mutex.dup }
+      super
+    end
+
+    def initialize_clone(other, freeze: nil) # :nodoc:
+      @mutex = other.instance_eval { @mutex.clone }
+      super
+    end
   end
 end
