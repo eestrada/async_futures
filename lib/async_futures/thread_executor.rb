@@ -174,7 +174,7 @@ module AsyncFutures
       yield(self) if block_given?
     ensure
       at_first_shutdown do
-        tasks_enum.each { |ftr, *_| ftr.cancel } if cancel_futures
+        tasks_enum.lazy.map(&:first).each(&:cancel) if cancel_futures
 
         @pool.dup.to_h.each_key(&:join) if wait
       end
